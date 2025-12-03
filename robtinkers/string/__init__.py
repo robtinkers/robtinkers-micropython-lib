@@ -10,13 +10,13 @@ punctuation = """!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
 printable = digits + ascii_letters + punctuation + whitespace
 
 
-def translate(s, map):
+def translate(s, map, _safe=None):
     import io
 
     sb = io.StringIO()
     for c in s:
         v = ord(c)
-        if v in map:
+        if v in map and (_safe is None or c not in _safe):
             v = map[v]
             if isinstance(v, int):
                 sb.write(chr(v))
