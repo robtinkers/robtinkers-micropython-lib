@@ -30,25 +30,25 @@ _ASCIITABLE = (
     b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
 )
 
-_safe_set = frozenset([45, 46, 95, 126]) # -._~
-_safe_set_with_slash = frozenset([45, 46, 95, 126, 47]) # -._~/
+_HEXNIBBLE = b'0123456789ABCDEF'
 
-_HEXDIGITS = b'0123456789ABCDEF'
+_SAFE_SET = frozenset([45, 46, 95, 126]) # -._~
+_SAFE_SET_WITH_SLASH = frozenset([45, 46, 95, 126, 47]) # -._~/
 
 def quote(s, safe='/', *, _plus=False) -> str:
     if not s:
         return ''
     
     if safe == '/':
-        safe_bytes = _safe_set_with_slash
+        safe_bytes = _SAFE_SET_WITH_SLASH
     elif safe == '':
-        safe_bytes = _safe_set
+        safe_bytes = _SAFE_SET
     elif isinstance(safe, (set, frozenset)): # extension (should be a set of byte-values)
         safe_bytes = safe
     elif isinstance(safe, str):
-        safe_bytes = set(_safe_set).union(set(ord(c) for c in safe))
+        safe_bytes = set(_SAFE_SET).union(set(ord(c) for c in safe))
     else:
-        safe_bytes = set(_safe_set).union(set(b for b in safe))
+        safe_bytes = set(_SAFE_SET).union(set(b for b in safe))
     
     bmv = memoryview(s) # In micropython, memoryview(str) returns read-only UTF-8 bytes
     
@@ -82,8 +82,8 @@ def quote(s, safe='/', *, _plus=False) -> str:
             j += 1
         else:
             res[j+0] = 37 # %
-            res[j+1] = _HEXDIGITS[(b >> 4) & 0xF]
-            res[j+2] = _HEXDIGITS[(b >> 0) & 0xF]
+            res[j+1] = _HEXNIBBLE[(b >> 4) & 0xF]
+            res[j+2] = _HEXNIBBLE[(b >> 0) & 0xF]
             j += 3
     
     return res.decode('ascii') # can raise UnicodeError
@@ -346,29 +346,26 @@ def _parse_qs_generator(qs:str, keep_blank_values=False, strict_parsing=False, u
     if not qs:
         return
         
-    i = 0
+    j = -1
     n = len(qs)
     
-    while i < n:
+    while (j + 1) < n:
+        i = j + 1
         j = qs.find('&', i)
         if j == -1:
             j = n
         
         eq = qs.find('=', i, j)
         
-        if eq == -1:
-            if strict_parsing:
-                raise ValueError("bad query field: %r" % (qs[i:j],))
-            key = unquote_via(qs[i:j])
-            val = ''
+        if eq >= 0:
+            if keep_blank_values or (eq + 1 < j):
+                yield unquote_via(qs[i:eq]), unquote_via(qs[eq+1:j])
         else:
-            key = unquote_via(qs[i:eq])
-            val = unquote_via(qs[eq+1:j])
-            
-        if val or keep_blank_values:
-            yield key, val
-            
-        i = j + 1
+            if strict_parsing:
+#                raise ValueError("bad query field: %r" % (qs[i:j],))
+                continue # CPython raises ValueError, we silently drop
+            if keep_blank_values:
+                yield unquote_via(qs[i:j]), ''
 
 def parse_qs(qs:str, **kwargs) -> dict:
     res = {}
