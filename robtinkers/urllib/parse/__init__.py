@@ -264,53 +264,43 @@ def urlunsplit(components: tuple) -> str:
         url = url + '#' + fragment
     return url
 
+
 def _normalize_path(path: str) -> str:
     if not path:
         return ''
     
-    is_abs = path.startswith('/')
+    slashes = 0
+    for char in path:
+        if char == '/':
+            slashes += 1
+        else:
+            break
     
     stack = []
     
-    j = -1
-    if is_abs:
-        j = 0
-    n = len(path)
-    
-    while (j + 1) < n:
-        i = j + 1
-        j = path.find('/', i)
-        if j == -1:
-            j = n
-        
-        slen = j - i
-        
-        if slen == 1 and path[i] == '.':
-            pass
-        elif slen == 2 and path[i] == '.' and path[i+1] == '.':
-            if stack:
-                if stack[-1] == '..':
-                    stack.append('..')
-                else:
-                    stack.pop()
-            elif not is_abs:
+    for seg in path.split('/'):
+        if seg == '' or seg == '.':
+            continue
+        elif seg == '..':
+            if stack and stack[-1] != '..':
+                stack.pop()
+            elif slashes == 0:
                 stack.append('..')
         else:
-            stack.append(path[i:j])
-            
+            stack.append(seg)
+    
     res = '/'.join(stack)
-    if is_abs:
-        res = '/' + res
-
-    if path.endswith('/') or path.endswith('/.') or path == '.' or \
-       path.endswith('/..') or path == '..':
-        if not res.endswith('/'):
-            if res == '':
-                res = '/'
-            else:
+    
+    if slashes > 0:
+        res = ('/' * slashes) + res
+    
+    if path.endswith('/') or path.endswith('/.') or path == '.' or path.endswith('/..') or path == '..':
+        if not res.endswith('/') and not (stack and stack[-1] == '..'):
+            if res != '':
                 res += '/'
-                
+    
     return res
+
 
 def urljoin(base:str, url:str, allow_fragments=True) -> str:
     if not isinstance(base, str):
@@ -335,9 +325,7 @@ def urljoin(base:str, url:str, allow_fragments=True) -> str:
     un = bn
     
     if up:
-        if up.startswith('/'):
-            pass 
-        else:
+        if not up.startswith('/'):
             if not bp:
                 if bn:
                     up = '/' + up
