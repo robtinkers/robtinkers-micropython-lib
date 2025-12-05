@@ -115,7 +115,7 @@ def quote_plus(s, safe='') -> str:
 
 
 @micropython.viper
-def _unquote_process(_plus: bool, src: ptr8, srclen: int, res: ptr8) -> int:
+def _unquote_process(plus: bool, src: ptr8, srclen: int, res: ptr8) -> int:
     qfound = False
     reslen = 0
     n1 = n2 = b = i = 0
@@ -145,7 +145,7 @@ def _unquote_process(_plus: bool, src: ptr8, srclen: int, res: ptr8) -> int:
                 b = (n1 << 4) | (n2 << 0)
                 i += 2
         
-        elif b == 43 and _plus: # '+'
+        elif b == 43 and plus: # '+'
             qfound = True
             b = 32 # space
         
