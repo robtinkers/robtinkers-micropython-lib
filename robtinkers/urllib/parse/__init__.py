@@ -180,12 +180,12 @@ def unquote(s, *, always_str=True, _plus=False) -> str:
         else:
             return bytes(s)
     
-    res = memoryview(res)[:reslen]
+    res = bytes(memoryview(res)[:reslen])
     
     if isinstance(s, str) or always_str:
         return str(res, 'utf-8')
     else:
-        return bytes(res)
+        return res
 
 
 def unquote_plus(s) -> str:
@@ -448,8 +448,7 @@ def _parse_qs_generator(qs: str, keep_blank_values=False, strict_parsing=False, 
                 yield unquote_via(qs[i:eq]), unquote_via(qs[eq+1:j])
         else:
             if strict_parsing:
-#                raise ValueError("bad query field: %r" % (qs[i:j],))
-                continue # CPython raises ValueError, we silently drop
+                raise ValueError("bad query field: %r" % (qs[i:j],))
             if keep_blank_values:
                 yield unquote_via(qs[i:j]), ''
 
