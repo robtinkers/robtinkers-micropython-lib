@@ -67,9 +67,7 @@ def quote(s, safe='/', *, to_bytes=False, _plus=False) -> str:
     # can raise UnicodeError
     
     if not s: # empty input
-        if s is None:
-            return b'' if to_bytes else ''
-        elif to_bytes:
+        if to_bytes:
             return bytes(s)
         elif isinstance(s, str):
             return s
@@ -162,9 +160,7 @@ def unquote(s, *, to_bytes=False, _plus=False) -> str:
     # can raise UnicodeError
     
     if not s: # empty input
-        if s is None:
-            return b'' if to_bytes else ''
-        elif to_bytes:
+        if to_bytes:
             return bytes(s)
         elif isinstance(s, str):
             return s
