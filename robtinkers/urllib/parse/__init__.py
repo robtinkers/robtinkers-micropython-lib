@@ -2,7 +2,7 @@
 
 __all__ = [
     "quote", "quote_plus", "quote_from_bytes",
-    "unquote", "unquote_plus", "unquote_to_bytes",
+    "unquote", "unquote_plus",
     "netlocsplit", "netlocdict", "urlsplit", "urlunsplit", "urljoin",
     "urlencode", "parse_qs", "parse_qsl", "urldecode", 
 ]
@@ -191,9 +191,6 @@ def unquote(s, *, always_str=True, _plus=False) -> str:
 
 def unquote_plus(s) -> str:
     return unquote(s, _plus=True)
-
-
-unquote_to_bytes = unquote
 
 
 def netlocsplit(netloc: str) -> tuple: # extension
