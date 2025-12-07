@@ -32,7 +32,7 @@ def _create_connection(address, timeout=None):
             return sock
         except OSError as e:
             err = e
-            if sock is not None:
+            if sock is not None: 
                 sock.close()
     if err is None:
         raise OSError("getaddrinfo failed")
@@ -252,9 +252,6 @@ class HTTPResponse:
                 data = self.fp.read()
                 self.length = 0
                 self.close()        # we read everything
-            elif self.length < 0:  # should not happen
-                data = b''
-                self.close()
             else:
                 data = self.fp.read(self.length) # no short reads on micropython
                 self.length -= len(data)
@@ -262,9 +259,6 @@ class HTTPResponse:
         else:
             if self.length is None:
                 data = self.fp.read(amt) # no short reads on micropython
-            elif self.length < 0:  # should not happen
-                self.close()
-                data = b''
             elif self.length == 0 and amt > 0:
                 self.close()        # nothing left
                 data = b''
@@ -511,6 +505,8 @@ class HTTPConnection:
         url = url or '/'
         
         request = '%s %s %s' % (method, url, 'HTTP/1.1')
+        if any(c in request for c in '\0\r\n'):
+            raise ValueError("method/url can't contain control characters")
         self._buffer.append(request.encode(ENCODE_HEAD))
         
         # Issue some standard headers for better HTTP/1.1 compliance
