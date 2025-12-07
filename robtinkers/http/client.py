@@ -363,8 +363,7 @@ class HTTPConnection:
             self.host = host
             self.port = port
     
-    def set_debuglevel(self, level):
-        pass
+#    def set_debuglevel(self, level):
 #        self.debuglevel = level
     
     def __enter__(self):
