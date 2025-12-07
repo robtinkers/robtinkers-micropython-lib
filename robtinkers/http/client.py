@@ -431,7 +431,7 @@ class HTTPConnection:
                 if d is None:
                     continue
                 elif isinstance(d, (bytes, bytearray, memoryview)):
-                    if d == b'':
+                    if not d:
                         continue
                 else:
                     raise TypeError(f"data has unexpected type {type(d)}")
