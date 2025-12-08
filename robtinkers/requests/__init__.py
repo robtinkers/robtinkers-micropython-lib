@@ -1,44 +1,7 @@
 import http.client
 import json as ujson
 from ubinascii import b2a_base64
-from urllib.parse import urlsplit, urljoin, urlencode
-
-try:
-    from urllib.parse import netlocsplit
-except ImportError:
-    def netlocsplit(netloc: str):
-        if not isinstance(netloc, str):
-            raise TypeError('netloc must be a string')
-        
-        userpass, sep, hostport = netloc.partition('@')
-        if sep:
-            username, sep, password = userpass.partition(':')
-            if not sep:
-                password = None
-        else:
-            username, password = None, None
-            hostport = userpass
-        
-        if ']' in hostport: # Handle IPv6
-            host, sep, port = hostport.rpartition(':')
-            if ']' not in host:
-                host = hostport
-                port = None
-        else:
-            host, sep, port = hostport.rpartition(':')
-        
-        if host:
-            host = host.lower()
-        else:
-            host = None
-        
-        try:
-            port = int(port, 10)
-            if port < 0: port = None
-        except (ValueError, TypeError):
-            port = None
-        
-        return (username, password, host, port)
+from urllib.parse import netlocsplit, urlsplit, urljoin, urlencode
 
 class Response:
     def __init__(self, raw):
@@ -65,10 +28,7 @@ class Response:
     @property
     def content(self):
         if self._content is None:
-            try:
-                self._content = self.raw.read()
-            finally:
-                self.close()
+            self._content = self.raw.read()
         return self._content
     
     @property
@@ -79,8 +39,7 @@ class Response:
         return ujson.loads(self.content)
     
     def close(self):
-        if self.raw:
-            self.raw.close()
+        self.raw.close()
     
     def __enter__(self):
         return self
@@ -172,8 +131,21 @@ def request(method, url, data=None, *, json=None, params=None, headers=None, coo
                 conn.close()
                 redirects -= 1
                 
+                old_method = method
+                old_scheme = scheme
+                old_host = host
+                old_port = port
+                
+                if resp.status_code in [301, 302, 303]:
+                    method = 'GET'
+                
+                if (method != old_method):
+                    data = None
+                    for key in headers.keys():
+                        if key.lower() == 'content-type':
+                            del headers[key]
+                
                 url = urljoin(url, location)
-                old_scheme, old_host, old_port = scheme, host, port
                 scheme, netloc, path, query, _ = urlsplit(url)
                 username, password, host, port = netlocsplit(netloc)
                 
@@ -183,21 +155,6 @@ def request(method, url, data=None, *, json=None, params=None, headers=None, coo
                     # Delete the auth info
                     auth = None
                     #TODO: are there headers we should delete?
-                
-                # Switch Method on 303 or 301/302 POST
-                if resp.status_code in [301, 302] and method != 'GET':
-                    method = 'GET'
-                    data = None
-                    for key in headers.keys():
-                        if key.lower() == 'content-type':
-                            del headers[key]
-                
-                elif resp.status_code == 303:
-                    method = 'GET'
-                    data = None
-                    for key in headers.keys():
-                        if key.lower() == 'content-type':
-                            del headers[key]
                 
                 continue
         
