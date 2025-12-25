@@ -1,4 +1,4 @@
-# dev/http_client
+# http/client.py
 
 import socket
 
@@ -16,16 +16,16 @@ OK = const(200)
 # servers will otherwise respond with a 411
 _METHODS_EXPECTING_BODY = frozenset({'PATCH', 'POST', 'PUT'})
 
-_CRITICAL_HEADERS = frozenset({
-    b'connection',
+_IMPORTANT_HEADERS = frozenset({
+    b'connection', # required
     b'content-encoding',
-    b'content-length',
+    b'content-length', # required
     b'content-type',
     b'etag',
-    b'keep-alive',
-    b'location',
+    b'keep-alive', # required
+    b'location', # required-ish
     b'retry-after',
-    b'transfer-encoding',
+    b'transfer-encoding', # required
     b'www-authenticate',
 })
 
@@ -62,7 +62,7 @@ def create_connection(address, timeout=None):
         except OSError:
             if sock is not None:
                 sock.close()
-    raise OSError("create_connection() failed")
+    raise OSError('create_connection() failed')
 
 def parse_headers(sock, *, all_headers=False, and_cookies=None):
     headers = {}
@@ -97,7 +97,7 @@ def parse_headers(sock, *, all_headers=False, and_cookies=None):
                         key = key.decode(DECODE_HEAD)
                         val = val.decode(DECODE_HEAD)
                         cookies[key] = val # includes any quotes and parameters
-            elif all_headers == True or key in _CRITICAL_HEADERS:
+            elif all_headers == True or key in _IMPORTANT_HEADERS:
                 key = key.decode(DECODE_HEAD)
                 val = val.decode(DECODE_HEAD)
                 if key in headers:
@@ -140,9 +140,9 @@ class HTTPResponse:
             self.will_close = not ('keep-alive' in self.headers.get('connection', '').lower() or self.headers.get('keep-alive'))
         
         # do we have a Content-Length?
-        # NOTE: RFC 2616, S4.4, #3 says we ignore this if "chunked"
+        # NOTE: RFC 2616, S4.4, #3 says we ignore this if chunked
         self._unread = None
-        length = self.headers.get("content-length")
+        length = self.headers.get('content-length')
         if length and not self.chunked:
             try:
                 self._unread = int(length, 10)
@@ -155,7 +155,7 @@ class HTTPResponse:
         # does the body have a fixed length? (of zero)
         if (self.status == 204 or self.status == 304 or
             100 <= self.status < 200 or      # 1xx codes
-            self._method == "HEAD"):
+            self._method == 'HEAD'):
             self._unread = 0
         
         # if the connection remains open, and we aren't using chunked, and
@@ -185,7 +185,7 @@ class HTTPResponse:
                     reason = reason.strip()
                 except ValueError:
                     version, status = line.split(None, 1)
-                    reason = ""
+                    reason = ''
                 
                 status = int(status, 10)
             except (UnicodeError, ValueError):
@@ -205,10 +205,10 @@ class HTTPResponse:
                 if self.debuglevel > 0:
                     print('header:', repr(line))
         
-        if version in ("HTTP/1.0", "HTTP/0.9"):
-            # Some servers might still return "0.9", treat it as 1.0 anyway
+        if version in ('HTTP/1.0', 'HTTP/0.9'):
+            # Some servers might still return 0.9, treat it as 1.0 anyway
             version = 10
-        elif version.startswith("HTTP/1."):
+        elif version.startswith('HTTP/1.'):
             version = 11 # use HTTP/1.1 code for HTTP/1.x where x>=1
         else:
             raise BadStatusLine()
@@ -485,7 +485,7 @@ class HTTPConnection:
         
         request = ('%s %s HTTP/1.1\r\n' % (self._method, self._url)).encode(ENCODE_HEAD)
         if any(b in request for b in b'\0\r\n'):
-            raise ValueError("method/url can't contain control characters")
+            raise ValueError('method/url can\'t contain control characters')
         
         if self._sock is None:
             if True:
