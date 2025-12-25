@@ -370,12 +370,12 @@ class HTTPResponse:
     
     def getcookie(self, name, default=None):
         if name in self.cookies:
-            return self.cookies[name].split(';', 1)[0]
+            return self.cookies[name].split(';', 1)[0] # value only
         else:
             return default
     
     def getcookies(self):
-        return self.cookies.items()
+        return self.cookies.items() # includes parameters
 
 class HTTPConnection:
     default_port = HTTP_PORT
