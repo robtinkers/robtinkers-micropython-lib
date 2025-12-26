@@ -60,7 +60,7 @@ def create_connection(address, timeout=None):
                 sock.close()
     raise OSError('create_connection() failed')
 
-def parse_headers(sock, *, more_headers=False, with_cookies=None):
+def parse_headers(sock, *, more_headers=False, with_cookies=None): # returns dict/s {str:bytes, ...}
     headers = {}
     if with_cookies is not None:
         cookies = {}
@@ -111,8 +111,8 @@ class HTTPResponse:
     def __init__(self, sock, debuglevel=0, method=None, url=None, *, more_headers=False, set_cookies=False):
         self._sock = sock
         self.debuglevel = debuglevel
-        self._method = method
-        self._url = url
+        self.method = method
+        self.url = url
         
         self.version, self.status, self.reason = self._read_status()
         if self.debuglevel > 0:
@@ -151,7 +151,7 @@ class HTTPResponse:
         # does the body have a fixed length? (of zero)
         if (self.status == 204 or self.status == 304 or
             100 <= self.status < 200 or      # 1xx codes
-            self._method == 'HEAD'):
+            self.method == 'HEAD'):
             self.length = 0
         
         # if the connection remains open, and we aren't using chunked, and
@@ -373,10 +373,10 @@ class HTTPResponse:
         else:
             return default
     
-    def getheaders(self):
+    def getheaders(self): # incompat, returns {str:bytes, ...}
         return self.headers.items()
     
-    def getcookie(self, name, default=None):
+    def getcookie(self, name, default=None): # extension
         if name in self.cookies:
             value = self.cookies[name]
             value = value.split(b';', 1)[0]
@@ -384,10 +384,10 @@ class HTTPResponse:
         else:
             return default
     
-    def getcookies(self):
+    def getcookies(self): # extension, returns {str:bytes, ...}
         return self.cookies.items()
     
-    def iter_content(self, chunk_size=1024):
+    def iter_content(self, chunk_size=1024): # extension
         chunk_size = int(chunk_size)
         if chunk_size <= 0:
             raise ValueError('chunk_size must be > 0')
@@ -397,7 +397,7 @@ class HTTPResponse:
                 return
             yield b
     
-    def iter_content_into(self, buf):
+    def iter_content_into(self, buf): # extension
         bmv = buf if isinstance(buf, memoryview) else memoryview(buf)
         while True:
             n = self.readinto(bmv)
@@ -424,16 +424,16 @@ class HTTPConnection:
     def set_debuglevel(self, level):
         self.debuglevel = level
     
-    def __enter__(self):
+    def __enter__(self): # extension
         return self
     
-    def __exit__(self, exc_type, exc_value, traceback):
-        self._close()
+    def __exit__(self, exc_type, exc_value, traceback): # extension
+        self.close()
     
     def connect(self):
         self._sock = create_connection((self.host, self.port), self.timeout)
     
-    def _close(self):
+    def close(self):
         if self._sock is not None:
             self._sock.close()
             self._sock = None
@@ -445,9 +445,8 @@ class HTTPConnection:
         except OSError:
             raise NotConnected()
     
-    def request(self, method, url, body=None, *,
-                headers=None, cookies=None,
-                encode_chunked=False):
+    def request(self, method, url, body=None, headers=None, cookies=None,
+                *, encode_chunked=False):
         if isinstance(body, str):
             body = body.encode(ENCODE_BODY)
         
@@ -514,7 +513,7 @@ class HTTPConnection:
     def putrequest(self, method, url, skip_host=False, skip_accept_encoding=False):
         if self._response is not None:
             if self._response.will_close or not self._response.isclosed():
-                self._close()
+                self.close()
             self._response = None
         
         self._method = method
@@ -535,7 +534,7 @@ class HTTPConnection:
             try:
                 self._sendall(request)
             except NotConnected:
-                self._close()
+                self.close()
                 if self.auto_open:
                     self.connect()
                     self._sendall(request)
@@ -554,6 +553,20 @@ class HTTPConnection:
         if not skip_accept_encoding:
             self.putheader('Accept-Encoding', 'identity')
     
+    @staticmethod
+    def _enck(b, *args):
+        if isinstance(b, (bytes, bytearray)):
+            pass
+        elif hasattr(b, 'encode'):
+            b = b.encode(*args)
+#        elif isinstance(b, memoryview):
+#            b = bytes(b)
+        else:
+            raise TypeError('value must be bytes, bytearray or str')
+        if b'\0' in b or b'\r' in b or b'\n' in b:
+            raise ValueError('value can\'t contain control characters')
+        return b
+    
     def putheaders(self, headers, cookies=None): # extension
         if headers is not None:
             for key, val in headers.items():
@@ -562,23 +575,9 @@ class HTTPConnection:
         if cookies is not None:
             values = []
             for key, val in cookies.items():
-                values.append(f"{key}={val}")
+                values.append(b'%s=%s' % (key.encode(ENCODE_HEAD), self._enck(val)))
             if values:
-                self.putheader('Cookie', '; '.join(values))
-    
-    @staticmethod
-    def _enck(s, *args):
-        if isinstance(s, (bytes, bytearray)):
-            pass
-        elif isinstance(s, memoryview):
-            s = bytes(s)
-        elif hasattr(s, 'encode'):
-            s = s.encode(*args)
-        else:
-            raise TypeError('headers must be bytes, bytearray, memoryview or str')
-        if b'\0' in s or b'\r' in s or b'\n' in s:
-            raise ValueError('headers can\'t contain control characters')
-        return s
+                self.putheader('Cookie', b'; '.join(values))
     
     def putheader(self, header, *values):
         if len(values) == 0:
@@ -608,7 +607,7 @@ class HTTPConnection:
                 if self.debuglevel > 0:
                     print('send:', type(data).__name__, len(data))
                 if encode_chunked:
-                    self._sendall(b'%X\r\n' % len(data))
+                    self._sendall(b'%X\r\n' % (len(data),))
                 self._sendall(data)
                 if encode_chunked:
                     self._sendall(b'\r\n')
@@ -622,7 +621,7 @@ class HTTPConnection:
                 if not d:
                     break
                 if encode_chunked:
-                    self._sendall(b'%X\r\n' % len(d))
+                    self._sendall(b'%X\r\n' % (len(d),))
                 self._sendall(d)
                 if encode_chunked:
                     self._sendall(b'\r\n')
@@ -642,7 +641,7 @@ class HTTPConnection:
                 else:
                     raise TypeError(f"unexpected {type(d).__name__}")
                 if encode_chunked:
-                    self._sendall(b'%X\r\n' % len(d))
+                    self._sendall(b'%X\r\n' % (len(d),))
                 self._sendall(d)
                 if encode_chunked:
                     self._sendall(b'\r\n')
@@ -654,12 +653,12 @@ class HTTPConnection:
                 print('send: terminating chunk')
             self._sendall(b'0\r\n\r\n')
     
-    def getresponse(self, more_headers=False, set_cookies=False):
+    def getresponse(self, more_headers=False, set_cookies=False): # more_headers and set_cookies are an extension
         try:
             self._response = HTTPResponse(self._sock, self.debuglevel, self._method, self._url, more_headers=more_headers, set_cookies=set_cookies)
             return self._response
         except Exception:
-            self._close()
+            self.close()
             raise
 
 try:
