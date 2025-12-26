@@ -1,4 +1,4 @@
-# dev/urllib_parse
+# urllib/parse.py
 
 from micropython import const
 
