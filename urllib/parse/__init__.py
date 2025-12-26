@@ -1,4 +1,6 @@
-# robtinkers/urllib.parse
+# dev/urllib_parse
+
+from micropython import const
 
 __all__ = [
     "quote", "quote_plus", "quote_from_bytes",
@@ -214,11 +216,12 @@ def netlocsplit(netloc: str) -> tuple: # extension
         host, sep, port = hostport.rpartition(':')
         if ']' not in host: # The colon was inside the brackets!
             host = hostport
-            port = None
+            port = ''
     else:
         host, sep, port = hostport.rpartition(':')
-        if host:
-            host = host.lower()
+        if not sep:
+            host, port = port, ''
+        host = host.lower()
     
     if not host:
         host = None
