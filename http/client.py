@@ -97,13 +97,11 @@ def parse_headers(sock, *, extra_headers=False, parse_cookies=None): # returns d
             
             if key == b'set-cookie':
                 if parse_cookies == True:
-                    key, sep, val = val.partition(b'=')
-                    if sep:
-                        key = key.decode(_DECODE_HEAD)
-                        cookies[key] = val # includes any quotes and parameters
+                    sep = val.find(b'=')
+                    if sep != -1:
+                        cookies[val[:sep]] = val[sep+1:] # includes any quotes and parameters
             elif extra_headers == True or key in _IMPORTANT_HEADERS \
                     or (isinstance(extra_headers, (frozenset, set, list, tuple)) and key in extra_headers):
-                key = key.decode(_DECODE_HEAD)
                 if key in headers:
                     headers[key] += b', ' + val
                 else:
@@ -141,21 +139,21 @@ class HTTPResponse:
                 print('cookie:', repr(key), '=', repr(val))
         
         # are we using the chunked-style of transfer encoding?
-        self.chunked = b'chunked' in self.headers.get('transfer-encoding', b'').lower()
+        self.chunked = b'chunked' in self.getheader(b'transfer-encoding', b'').lower()
         self.chunk_left = None
         
         # will the connection close at the end of the response?
         if self.status == 101:
             self.will_close = True
         elif self.version == 11:
-            self.will_close = b'close' in self.headers.get('connection', b'').lower()
+            self.will_close = b'close' in self.getheader(b'connection', b'').lower()
         else:
-            self.will_close = not (b'keep-alive' in self.headers.get('connection', b'').lower() or self.headers.get('keep-alive'))
+            self.will_close = not (b'keep-alive' in self.getheader(b'connection', b'').lower() or self.getheader(b'keep-alive'))
         
         # do we have a Content-Length?
         # NOTE: RFC 2616, S4.4, #3 says we ignore this if chunked
         self.length = None
-        length = self.getheader('content-length')
+        length = self.getheader(b'content-length')
         if length and not self.chunked:
             try:
                 self.length = int(length, 10)
@@ -391,25 +389,33 @@ class HTTPResponse:
         return res
     
     def getheader(self, name, default=None):
+        if isinstance(name, str):
+            name = name.encode(_ENCODE_HEAD)
         name = name.lower()
         if name in self.headers:
             value = self.headers[name]
-            return value.decode(_DECODE_HEAD)
+            value = value.decode(_DECODE_HEAD)
+            return value
         else:
             return default
     
-    def getheaders(self): # incompat, returns {str:bytes, ...}
+    def getheaders(self): # incompat, returns {bytes:bytes, ...}
         return self.headers.items()
     
     def getcookie(self, name, default=None): # extension
+        if isinstance(name, str):
+            name = name.encode(_ENCODE_HEAD)
         if name in self.cookies:
             value = self.cookies[name]
-            value = value.split(b';', 1)[0]
-            return value.decode(_DECODE_HEAD)
+            sep = value.find(b';')
+            if sep != -1:
+                value = value[:sep]
+            value = value.decode(_DECODE_HEAD)
+            return value
         else:
             return default
     
-    def getcookies(self): # extension, returns {str:bytes, ...}
+    def getcookies(self): # extension, returns {bytes:bytes, ...}
         return self.cookies.items()
     
     def iter_content(self, chunk_size=1024): # extension
