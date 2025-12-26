@@ -578,12 +578,14 @@ class HTTPConnection:
     def putheaders(self, headers, cookies=None): # extension
         if headers is not None:
             for key, val in headers.items():
-                self.putheader(key, val)
+                if val is not None:
+                    self.putheader(key, val)
         
         if cookies is not None:
             values = []
             for key, val in cookies.items():
-                values.append(b'%s=%s' % (key.encode(_ENCODE_HEAD), _enck(val)))
+                if val is not None:
+                    values.append(b'%s=%s' % (key.encode(_ENCODE_HEAD), _enck(val)))
             if values:
                 self.putheader('Cookie', b'; '.join(values))
     
