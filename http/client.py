@@ -495,9 +495,9 @@ class HTTPConnection:
         self._method = method
         self._url = url or '/'
         
-        request = ('%s %s HTTP/1.1\r\n' % (self._method, self._url)).encode(ENCODE_HEAD)
-        if any(b in request for b in b'\0\r\n'):
-            raise ValueError('method/url can\'t contain control characters')
+        request = b' '.join((self._method.encode(ENCODE_HEAD), self._url.encode(ENCODE_HEAD), b'HTTP/1.1\r\n'))
+        if b'\0' in request or 0 <= request.find(b'\r') < len(request) - 2 or 0 <= request.find(b'\n') < len(request) - 2:
+            raise ValueError('request can\'t contain control characters')
         
         if self._sock is None:
             if True:
@@ -525,7 +525,7 @@ class HTTPConnection:
             if self.port == self.default_port:
                 self.putheader('Host', host)
             else:
-                self.putheader('Host', '%s:%s' % (host, self.port))
+                self.putheader('Host', f"{host}:{self.port}")
         if not skip_accept_encoding:
             self.putheader('Accept-Encoding', 'identity')
     
