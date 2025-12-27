@@ -369,7 +369,7 @@ def urljoin(base: str, url: str, allow_fragments=True):
         return url
     if not scheme or scheme in _USES_NETLOC:
         if netloc:
-            return urlunsplit(scheme, netloc, path, query, fragment)
+            return urlunsplit((scheme, netloc, path, query, fragment))
         netloc = bnetloc
     
     if not path:
@@ -378,7 +378,7 @@ def urljoin(base: str, url: str, allow_fragments=True):
             query = bquery
             if fragment is None:
                 fragment = bfragment
-        return urlunsplit(scheme, netloc, path, query, fragment)
+        return urlunsplit((scheme, netloc, path, query, fragment))
     
     base_parts = bpath.split('/')
     if base_parts[-1] != '':
@@ -409,7 +409,7 @@ def urljoin(base: str, url: str, allow_fragments=True):
         # then we need to append the trailing '/'
         resolved_path.append('')
     
-    return urlunsplit(scheme, netloc, '/'.join(resolved_path) or '/', query, fragment)
+    return urlunsplit((scheme, netloc, '/'.join(resolved_path) or '/', query, fragment))
 
 
 def _urlencode_generator(query, doseq=False, safe='', *, quote_via=quote_plus):
