@@ -146,7 +146,7 @@ def _unquote_process(src: ptr8, srclen: int, plus: int, res: ptr8) -> int:
                 n1 = 255
                 n2 = 255
             
-            if n1 < 16 and n2 < 16:
+            if n1 != 255 and n2 != 255:
                 b = (n1 << 4) | (n2 << 0)
                 i += 2
         
