@@ -338,9 +338,6 @@ def _urlsplit(url: str, scheme, allow_fragments: bool) -> tuple:
 
 class SplitResult:
     
-    __slots__ = ('scheme', 'netloc', 'path', 'query', 'fragment',
-                 'username', 'password', 'hostname', 'port', '_url')
-    
     def __init__(self, url: str, scheme, allow_fragments: bool):
         self.scheme, netloc, path, query, fragment = _urlsplit(url, scheme, allow_fragments)
         self.netloc = netloc or ''
@@ -360,7 +357,6 @@ class SplitResult:
         yield self.fragment
     
     def __getitem__(self, i):
-#        return (self.scheme, self.netloc, self.path, self.query, self.fragment)[i]
         if i == 0: return self.scheme
         if i == 1: return self.netloc
         if i == 2: return self.path
