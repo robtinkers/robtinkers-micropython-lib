@@ -6,7 +6,6 @@ __all__ = [
     "quote", "quote_plus", "quote_from_bytes",
     "unquote", "unquote_plus", "unquote_to_bytes",
     "urlencode", "parse_qs", "parse_qsl", "urldecode", 
-    "urlsplit_to_tuple", "netlocsplit_to_tuple",
     "urlsplit", "urlunsplit", "urljoin",
 ]
 
@@ -268,53 +267,57 @@ def urldecode(qs: str, *args, **kwargs) -> dict:
 
 
 
-def netlocsplit_to_tuple(netloc: str) -> tuple: # extension
-    userpass, sep, hostport = netloc.rpartition('@')
-    if sep:
-        username, sep, password = userpass.partition(':')
-        if not sep:
-            password = None
+def _locsplit(netloc: str) -> tuple: # extension
+    if (sep := netloc.rfind('@')) >= 0:
+        userpass, hostport = netloc[:sep], netloc[sep+1:]
+        if (sep := netloc.find(':')) >= 0:
+            username, password = userpass[:sep], userpass[sep+1:]
+        else:
+            username, password = userpass, None
     else:
+        hostport = netloc
         username, password = None, None
-        hostport = userpass
     
     if hostport.startswith('['): # Handle IPv6 (simple check)
-        host, sep, port = hostport[1:].partition(']')
-        if sep and port.startswith(':'):
-            port = port[1:]
+        if (sep := hostport.find(']')) >= 0:
+            host, port_string = hostport[1:sep], hostport[sep+1:]
+        else:
+            host, port_string = hostport, ''
     else:
-        host, sep, port = hostport.rpartition(':')
-        if not sep:
-            host, port = port, ''
+        if (sep := hostport.rfind(':')) >= 0:
+            host, port_string = hostport[:sep], hostport[sep:]
+        else:
+            host, port_string = hostport, ''
     
     if host:
         host = host.lower()
     else:
         host = None
     
-    if port:
-        # Incompatibility:
-        # CPython raises ValueError for bad ports
-        # we return bad ports as the string
+    # Incompatibility:
+    # CPython raises ValueError for bad ports
+    # we return bad ports as the string
+    port = port_string
+    if port_string.startswith(':'):
         try:
-            port_number = int(port, 10)
+            port_number = int(port_string[1:], 10)
         except ValueError:
             pass
         else:
             if (0 <= port_number <= 65535):
                 port = port_number
-    else:
+    elif port_string == '':
         port = None
     
     return (username, password, host, port)
 
 # derived from CPython (all bugs are mine)
-def urlsplit_to_tuple(url: str, scheme='', allow_fragments: bool=True) -> tuple:
+def _urlsplit(url: str, scheme, allow_fragments: bool) -> tuple:
     url = url.lstrip()
     if scheme:
         scheme = scheme.strip()
     
-    netloc = query = fragment = ''
+    netloc = query = fragment = None
     if (colon := url.find(':')) > 0 and url[0].isalpha():
         if (slash := url.find('/')) < 0 or colon < slash:
             scheme, url = url[:colon].lower(), url[colon+1:]
@@ -338,10 +341,14 @@ class SplitResult:
     __slots__ = ('scheme', 'netloc', 'path', 'query', 'fragment',
                  'username', 'password', 'hostname', 'port', '_url')
     
-    def __init__(self, url: str, scheme='', allow_fragments=True):
+    def __init__(self, url: str, scheme, allow_fragments: bool):
         self._url = url
-        self.scheme, self.netloc, self.path, self.query, self.fragment = urlsplit_to_tuple(url, scheme, allow_fragments)
-        self.username, self.password, self.hostname, self.port = netlocsplit_to_tuple(self.netloc)
+        self.scheme, netloc, path, query, fragment = _urlsplit(url, scheme, allow_fragments)
+        self.netloc = netloc or ''
+        self.path = path or ''
+        self.query = query or ''
+        self.fragment = fragment or ''
+        self.username, self.password, self.hostname, self.port = _locsplit(self.netloc)
     
     def __len__(self):
         return 5
@@ -367,33 +374,32 @@ def urlsplit(url: str, scheme='', allow_fragments=True) -> SplitResult:
 
 
 
+def _urlunsplit(scheme, netloc, url, query, fragment) -> str:
+    if netloc is not None:
+        if url and not url.startswith('/'):
+            url = '/' + url
+        url = '//' + netloc + url
+    elif url.startswith('//'):
+        url = '//' + url
+    if scheme:
+        url = scheme + ':' + url
+    if query is not None:
+        url = url + '?' + query
+    if fragment is not None:
+        url = url + '#' + fragment
+    return url
+
 # derived from CPython (all bugs are mine)
 def urlunsplit(components: tuple) -> str:
     scheme, netloc, url, query, fragment = components
+    
     if not netloc:
-        if scheme and scheme in _USES_NETLOC:
+        if scheme and scheme in _USES_NETLOC and (not url or url.startswith('/')):
             netloc = ''
         else:
             netloc = None
     
-    if netloc is not None:
-        if url.startswith('//'):
-            if netloc:
-                url = '//' + netloc + url
-            else:
-                url = netloc + url
-        elif url.startswith('/'):
-            url = '//' + netloc + url
-        else:
-            url = '//' + netloc + '/' + url
-    
-    if scheme:
-        url = scheme + ':' + url
-    if query:
-        url = url + '?' + query
-    if fragment:
-        url = url + '#' + fragment
-    return url
+    return _urlunsplit(scheme or None, netloc, url, query or None, fragment or None)
 
 
 
@@ -404,8 +410,8 @@ def urljoin(base: str, url: str, allow_fragments: bool=True) -> str:
     if not url:
         return base
     
-    bscheme, bnetloc, bpath, bquery, bfragment = urlsplit_to_tuple(base, None, allow_fragments)
-    scheme, netloc, path, query, fragment = urlsplit_to_tuple(url, None, allow_fragments)
+    bscheme, bnetloc, bpath, bquery, bfragment = _urlsplit(base, None, allow_fragments)
+    scheme, netloc, path, query, fragment = _urlsplit(url, None, allow_fragments)
     
     if scheme is None:
         scheme = bscheme
@@ -418,11 +424,11 @@ def urljoin(base: str, url: str, allow_fragments: bool=True) -> str:
     
     if not path:
         path = bpath
-        if not query:
+        if query is None:
             query = bquery
-            if not fragment:
+            if fragment is None:
                 fragment = bfragment
-        return urlunsplit((scheme, netloc, path, query, fragment))
+        return _urlunsplit(scheme, netloc, path, query, fragment)
     
     base_parts = bpath.split('/')
     if base_parts[-1] != '':
@@ -446,16 +452,19 @@ def urljoin(base: str, url: str, allow_fragments: bool=True) -> str:
         del segments[w:len(segments) - 1]
     
     resolved_path = []
-    
     for seg in segments:
         if seg == '..':
             if resolved_path:
                 resolved_path.pop()
-        elif seg != '.':
+        elif seg == '.':
+            continue
+        else:
             resolved_path.append(seg)
     
     if segments[-1] in ('.', '..'):
+        # do some post-processing here. if the last segment was a relative dir,
+        # then we need to append the trailing '/'
         resolved_path.append('')
     
-    return urlunsplit((scheme, netloc, '/'.join(resolved_path) or '/', query, fragment))
+    return _urlunsplit(scheme, netloc, '/'.join(resolved_path) or '/', query, fragment)
 
