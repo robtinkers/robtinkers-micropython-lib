@@ -5,7 +5,7 @@ import micropython
 __all__ = [
     "quote", "quote_plus", "quote_from_bytes",
     "unquote", "unquote_plus", "unquote_to_bytes",
-    "urlsplit_tuple", "locsplit_tuple",
+    "urlsplit_tuple", "netlocsplit_as_tuple",
     "urlsplit", "urlunsplit", "urljoin",
     "urlencode", "parse_qs", "parse_qsl", "urldecode", 
 ]
@@ -34,43 +34,29 @@ _QUOTE_TABLE = (
 )
 
 @micropython.viper
-def _quote_reslen(src: ptr8, srclen: int, qtab: ptr8) -> int:
+def _quote_helper(src: ptr8, srclen: int, qtab: ptr8, res: ptr8) -> int:
+    modified = 0
     reslen = 0
-    qfound = False
     i = 0
     while i < srclen:
         b = src[i]
         i += 1
         
         if (32 <= b <= 127) and qtab[b] != 255:
-            reslen += 1
             if qtab[b] != b:
-                qfound = True
+                modified = 1
+            if int(res):
+                res[reslen] = qtab[b]
+            reslen += 1
         else:
+            modified = 1
+            if int(res):
+                res[reslen+0] = 37 # '%'
+                res[reslen+1] = qtab[(b >> 4) & 0xF]
+                res[reslen+2] = qtab[b & 0xF]
             reslen += 3
-            qfound = True
     
-    if qfound:
-        return reslen
-    else:
-        return -1
-
-@micropython.viper
-def _quote_process(src: ptr8, srclen: int, qtab: ptr8, dst: ptr8):
-    j = 0
-    i = 0
-    while i < srclen:
-        b = src[i]
-        i += 1
-        
-        if (32 <= b <= 127) and qtab[b] != 255:
-            dst[j] = qtab[b]
-            j += 1
-        else:
-            dst[j+0] = 37 # '%'
-            dst[j+1] = qtab[(b >> 4) & 0xF]
-            dst[j+2] = qtab[b & 0xF]
-            j += 3
+    return reslen if modified else 0
 
 def _quote(s, safe='', *, plus=False, to_bytes=False):
     # can raise UnicodeError
@@ -97,11 +83,10 @@ def _quote(s, safe='', *, plus=False, to_bytes=False):
         src = memoryview(s) # In micropython, memoryview(str) returns read-only UTF-8 bytes
     srclen = len(src)
     
-    reslen = _quote_reslen(src, srclen, qtab)
-    
-    if reslen >= 0:
+    reslen = _quote_helper(src, srclen, qtab, 0)
+    if reslen > 0:
         res = bytearray(reslen)
-        _quote_process(src, srclen, qtab, res)
+        _quote_helper(src, srclen, qtab, res)
     else:
         res = s
     
@@ -128,7 +113,8 @@ quote_from_bytes = quote
 
 
 @micropython.viper
-def _unquote_process(src: ptr8, srclen: int, plus: int, res: ptr8) -> int:
+def _unquote_helper(src: ptr8, srclen: int, plus: int, res: ptr8) -> int:
+    modified = 0
     reslen = 0
     n1 = n2 = b = i = 0
     while (i < srclen):
@@ -153,26 +139,19 @@ def _unquote_process(src: ptr8, srclen: int, plus: int, res: ptr8) -> int:
                 n2 = 255
             
             if n1 != 255 and n2 != 255:
+                modified = 1
                 b = (n1 << 4) | (n2 << 0)
                 i += 2
         
         elif b == 43 and plus: # '+'
+            modified = 1
             b = 32 # space
         
-        res[reslen] = b
+        if int(res):
+            res[reslen] = b
         reslen += 1
     
-    return reslen
-
-@micropython.viper
-def _unquote_required(src: ptr8, srclen: int, plus: int) -> int:
-    i = 0
-    while i < srclen:
-        b = src[i]
-        if b == 37 or (plus and b == 43):
-            return 1
-        i += 1
-    return 0
+    return reslen if modified else 0
 
 def _unquote(s, *, plus=False, to_bytes=False):
     # can raise UnicodeError
@@ -187,12 +166,11 @@ def _unquote(s, *, plus=False, to_bytes=False):
         src = memoryview(s) # In micropython, memoryview(str) returns read-only UTF-8 bytes
     srclen = len(src)
     
-    plus = 1 if plus else 0
-    if _unquote_required(src, srclen, plus):
-        res = bytearray(srclen) # Worst Case: result is the same size as the input
-        reslen = _unquote_process(src, srclen, plus, res)
-        if reslen < srclen:
-            res = memoryview(res)[:reslen]
+    flag_plus = 1 if plus else 0
+    reslen = _unquote_helper(src, srclen, flag_plus, 0)
+    if reslen:
+        res = bytearray(reslen)
+        _unquote_helper(src, srclen, flag_plus, res)
     else:
         res = s
     
@@ -219,10 +197,7 @@ def unquote_to_bytes(s) -> bytes:
     return _unquote(s, to_bytes=True)
 
 
-def locsplit_tuple(netloc: str) -> tuple: # extension
-    if not isinstance(netloc, str):
-        raise TypeError('netloc must be a string')
-    
+def netlocsplit_as_tuple(netloc: str) -> tuple: # extension
     userpass, sep, hostport = netloc.rpartition('@')
     if sep:
         username, sep, password = userpass.partition(':')
@@ -263,42 +238,29 @@ def locsplit_tuple(netloc: str) -> tuple: # extension
     return (username, password, host, port)
 
 
-def urlsplit_tuple(url: str, scheme='', allow_fragments=True) -> tuple:
-    if not isinstance(url, str):
-        raise TypeError('url must be a string')
+# derived from CPython (all bugs are mine)
+def urlsplit_as_tuple(url: str, scheme='', allow_fragments: bool=True) -> tuple:
+    url = url.lstrip()
+    if scheme:
+        scheme = scheme.strip()
     
-    if len(url) > 0 and ord(url[0]) <= 32:
-        url = url.lstrip() # CPython always does lstrip()
     netloc = query = fragment = ''
-    if allow_fragments:
-        url, _, fragment = url.partition('#')
-    url, _, query = url.partition('?')
-    
+    if (i := url.find(':')) > 0 and url[0].isalpha():
+        scheme, url = url[:i].lower(), url[i+1:]
     if url.startswith('//'):
-        url = url[2:]
-        netloc, sep, path = url.partition('/')
-        if sep or path:
-            path = '/' + path
-    elif url.startswith('/'):
-        path = url
-    else:
-        colon = url.find(':')
-        slash = url.find('/')
-        # Scheme exists if colon is present and comes before any slash
-        if (colon > 0 and url[0].isalpha()) and (slash == -1 or slash > colon):
-            scheme = url[:colon].lower()
-            url = url[colon+1:]
-            if url.startswith('//'):
-                url = url[2:]
-                netloc, sep, path = url.partition('/')
-                if sep or path:
-                    path = '/' + path
-            else:
-                path = url
-        else:
-            path = url
+        delim = len(url)
+        for c in '/?#':
+            if 0 <= (i := url.find(c, 2)) < delim:
+                delim = i
+        netloc, url = url[2:delim], url[delim:]
     
-    return (scheme, netloc, path, query, fragment)
+    if allow_fragments and (i := url.find('#')) >= 0:
+        url, fragment = url[:i], url[i+1:]
+    
+    if (i := url.find('?')) >= 0:
+        url, query = url[:i], url[i+1:]
+    
+    return (scheme, netloc, url, query, fragment)
 
 
 class SplitResult:
@@ -308,7 +270,7 @@ class SplitResult:
     
     def __init__(self, url: str, scheme='', allow_fragments=True):
         self.scheme, self.netloc, self.path, self.query, self.fragment = urlsplit_tuple(url, scheme, allow_fragments)
-        self.username, self.password, self.hostname, self.port = locsplit_tuple(self.netloc)
+        self.username, self.password, self.hostname, self.port = netlocsplit_as_tuple(self.netloc)
         self._url = url
     
     def __len__(self):
@@ -336,32 +298,44 @@ def urlsplit(url: str, scheme='', allow_fragments=True) -> SplitResult:
     return SplitResult(url, scheme, allow_fragments)
 
 
+# derived from CPython (all bugs are mine)
 def urlunsplit(components: tuple) -> str:
     scheme, netloc, url, query, fragment = components
+    if not netloc:
+        if scheme and scheme in _USES_NETLOC:
+            netloc = ''
+        else:
+            netloc = None
     
-    if netloc or (scheme in _USES_NETLOC):
-        if url and url[:1] != '/': 
-            url = '/' + url
-        url = '//' + (netloc or '') + url
-        
+    if netloc is not None:
+        if url.startswith('//'):
+            if netloc:
+                url = '//' + netloc + url
+            else:
+                url = netloc + url
+        elif url.startswith('/'):
+            url = '//' + netloc + url
+        else:
+            url = '//' + netloc + '/' + url
+    
     if scheme:
-        url = f"{scheme}:{url}"
+        url = scheme + ':' + url
     if query:
-        url = f"{url}?{query}"
+        url = url + '?' + query
     if fragment:
-        url = f"{url}#{fragment}"
+        url = url + '#' + fragment
     return url
 
 
-# copied from CPython with minor edits
-def urljoin(base: str, url: str, allow_fragments=True):
+# derived from CPython (all bugs are mine)
+def urljoin(base: str, url: str, allow_fragments: bool=True) -> str:
     if not base:
         return url
     if not url:
         return base
     
-    bscheme, bnetloc, bpath, bquery, bfragment = urlsplit_tuple(base, None, allow_fragments)
-    scheme, netloc, path, query, fragment = urlsplit_tuple(url, None, allow_fragments)
+    bscheme, bnetloc, bpath, bquery, bfragment = urlsplit_as_tuple(base, '', allow_fragments)
+    scheme, netloc, path, query, fragment = urlsplit_as_tuple(url, None, allow_fragments)
     
     if scheme is None:
         scheme = bscheme
@@ -374,10 +348,10 @@ def urljoin(base: str, url: str, allow_fragments=True):
     
     if not path:
         path = bpath
-        if query is None:
+        if not query:
             query = bquery
-            if fragment is None:
-                fragment = bfragment
+#            if not fragment:
+#                fragment = bfragment
         return urlunsplit((scheme, netloc, path, query, fragment))
     
     base_parts = bpath.split('/')
@@ -387,7 +361,7 @@ def urljoin(base: str, url: str, allow_fragments=True):
         del base_parts[-1]
     
     # for rfc3986, ignore all base path should the first character be root.
-    if path[:1] == '/':
+    if path.startswith('/'):
         segments = path.split('/')
     else:
         segments = base_parts + path.split('/')
@@ -398,15 +372,14 @@ def urljoin(base: str, url: str, allow_fragments=True):
     resolved_path = []
     
     for seg in segments:
-        if seg == '..':
-            if resolved_path:
-                resolved_path.pop()
-        elif seg != '.':
+        if seg == '..' and resolved_path:
+            resolved_path.pop()
+        elif seg == '.':
+            continue
+        else:
             resolved_path.append(seg)
     
-    if segments[-1] == '.' or segments[-1] == '..':
-        # do some post-processing here. if the last segment was a relative dir,
-        # then we need to append the trailing '/'
+    if segments[-1] in ('.', '..'):
         resolved_path.append('')
     
     return urlunsplit((scheme, netloc, '/'.join(resolved_path) or '/', query, fragment))
