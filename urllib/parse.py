@@ -22,20 +22,10 @@ _USES_NETLOC = frozenset([
 # Indices 0-15:   Hex Digits '0'-'F' (used for lookup during encoding)
 # Indices 16-31:  Unused/Unsafe (0xFF)
 # Indices 32-127: Mapping (0xFF = Encode, Other = Output Char)
-_QUOTE_TABLE = (
+_QUOTE_PLUS = (
     b'0123456789ABCDEF' 
     b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
-    b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff-.\xff'
-    b'0123456789\xff\xff\xff\xff\xff\xff'
-    b'\xffABCDEFGHIJKLMNO'
-    b'PQRSTUVWXYZ\xff\xff\xff\xff_'
-    b'\xffabcdefghijklmno'
-    b'pqrstuvwxyz\xff\xff\xff~\xff'
-)
-_QUOTE_TABLE_WITH_SLASH = (
-    b'0123456789ABCDEF' 
-    b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff'
-    b'\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff-./' # <- this slash right here
+    b'+\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff-.\xff'
     b'0123456789\xff\xff\xff\xff\xff\xff'
     b'\xffABCDEFGHIJKLMNO'
     b'PQRSTUVWXYZ\xff\xff\xff\xff_'
@@ -75,12 +65,12 @@ def _quote(s, safe='', *, plus=False, to_bytes=False):
         if to_bytes: return b''
         else: return ''
     
-    if safe == '':
-        qtab = _QUOTE_TABLE
-    elif safe == '/':
-        qtab = _QUOTE_TABLE_WITH_SLASH
+    if safe == '' and plus:
+        # we optimise for quote_plus() with safe='' (the default)
+        qtab = _QUOTE_PLUS
     else:
-        qtab = bytearray(_QUOTE_TABLE)
+        # other methods/arguments will have a slight memory churn
+        qtab = bytearray(_QUOTE_PLUS)
         if isinstance(safe, str):
             for c in safe:
                 b = ord(c)
@@ -88,8 +78,8 @@ def _quote(s, safe='', *, plus=False, to_bytes=False):
         else:
             for b in safe:
                 if 32 <= b <= 127: qtab[b] = b
-        if plus:
-            qtab[32] = 43 # '+'
+        if not plus:
+            qtab[32] = 0xFF
     qtab = memoryview(qtab)
     
     if isinstance(s, memoryview):
