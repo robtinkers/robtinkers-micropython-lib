@@ -270,7 +270,7 @@ def urldecode(qs: str, *args, **kwargs) -> dict:
 def _locsplit(netloc: str) -> tuple: # extension
     if (sep := netloc.rfind('@')) >= 0:
         userpass, hostport = netloc[:sep], netloc[sep+1:]
-        if (sep := netloc.find(':')) >= 0:
+        if (sep := userpass.find(':')) >= 0:
             username, password = userpass[:sep], userpass[sep+1:]
         else:
             username, password = userpass, None
@@ -374,6 +374,7 @@ def urlsplit(url: str, scheme='', allow_fragments=True) -> SplitResult:
 
 
 
+# derived from CPython (all bugs are mine)
 def _urlunsplit(scheme, netloc, url, query, fragment) -> str:
     if netloc is not None:
         if url and not url.startswith('/'):
@@ -392,13 +393,11 @@ def _urlunsplit(scheme, netloc, url, query, fragment) -> str:
 # derived from CPython (all bugs are mine)
 def urlunsplit(components: tuple) -> str:
     scheme, netloc, url, query, fragment = components
-    
     if not netloc:
         if scheme and scheme in _USES_NETLOC and (not url or url.startswith('/')):
             netloc = ''
         else:
             netloc = None
-    
     return _urlunsplit(scheme or None, netloc, url, query or None, fragment or None)
 
 
