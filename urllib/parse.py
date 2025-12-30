@@ -398,9 +398,9 @@ def _urlunsplit(scheme, netloc, url, query, fragment) -> str:
     if scheme:
         url = scheme + ':' + url
     if query is not None:
-        url = url + '?' + query
+        url += '?' + query
     if fragment is not None:
-        url = url + '#' + fragment
+        url += '#' + fragment
     return url
 
 # derived from CPython (all bugs are mine)
