@@ -59,7 +59,7 @@ def _quote_helper(src: ptr8, srclen: int, qtab: ptr8, res: ptr8) -> int:
     return reslen if modified else 0
 
 def _quote(s, safe, plus) -> str:
-    if isinstance(s, (memoryview, bytes)):
+    if isinstance(s, (memoryview, bytes, bytearray)):
         src = s
     else:
         src = memoryview(s)
@@ -156,7 +156,7 @@ def _unquote(s, start, end, plus) -> bytes:
     # if s is a string, then start and end should be 0 and None
     # otherwise you're going to have a very bad time
     
-    if isinstance(s, (memoryview, bytes)):
+    if isinstance(s, (memoryview, bytes, bytearray)):
         src = s
     else:
         src = memoryview(s)
