@@ -89,9 +89,12 @@ def _quote(s, safe, plus) -> str:
     
     reslen = _quote_helper(src, srclen, qtab, 0)
     if reslen <= 0:
-        if isinstance(s, str): return s
-        elif isinstance(s, (bytes, bytearray)): return s.decode('ascii')
-        else: return bytes(s).decode('ascii')
+        if isinstance(s, str):
+            return s
+        elif isinstance(s, (bytes, bytearray)):
+            return s.decode('ascii')
+        else:
+            return bytes(s).decode('ascii')
     
     res = bytearray(reslen)
     _quote_helper(src, srclen, qtab, res)
