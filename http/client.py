@@ -2,11 +2,9 @@
 
 import micropython, socket
 try:
-    from dev.urllib_parse import _urlsplit, _locsplit
-#    _have_urlsplit = 1
+    from dev.urllib_parse import _locsplit
     _have_locsplit = 1
 except ImportError:
-#    _have_urlsplit = 0
     _have_locsplit = 0
 
 HTTP_PORT = const(80)
@@ -75,7 +73,12 @@ def create_connection(address, timeout=None):
                 sock.close()
     raise OSError('create_connection() failed')
 
-def parse_headers(sock, *, extra_headers=False, parse_cookies=None): # returns dict/s {bytes:bytes, ...}
+def _parse_headers(sock, extra_headers, parse_cookies): # returns dict/s {bytes:bytes, ...}
+    # parse_cookies is tri-state:
+    # parse_cookies == True? parse set-cookie headers and return as a dict
+    # parse_cookies == False? don't parse set-cookie headers but return an empty dict
+    # parse_cookies == None? don't parse set-cookie headers and don't even return a dict
+    
     headers = {}
     if parse_cookies is not None:
         cookies = {}
@@ -89,35 +92,35 @@ def parse_headers(sock, *, extra_headers=False, parse_cookies=None): # returns d
             else:
                 return headers
         
-        try:
-            if line.startswith((b' ', b'\t')):
-                if last_header is not None:
-                    headers[last_header] += b' ' + line.strip()
-                continue
-            
-            x = line.find(b':')
-            if x == -1:
-                continue
-            key = line[:x].strip().lower()
-            val = line[x+1:].strip()
-            
-            if key == b'set-cookie':
-                if parse_cookies == True:
-                    x = val.find(b'=')
-                    if x != -1:
-                        cookies[val[:x]] = val[x+1:] # includes any quotes and parameters
-            elif extra_headers == True or key in _IMPORTANT_HEADERS \
-                    or (isinstance(extra_headers, (frozenset, set, list, tuple)) and key in extra_headers):
-                if key in headers:
-                    headers[key] += b', ' + val
-                else:
-                    headers[key] = val
-                last_header = key
-                continue
-        except UnicodeError:
-            pass
+        if line.startswith((b' ', b'\t')):
+            if last_header is not None:
+                headers[last_header] += b' ' + line.strip()
+            continue
+        
+        x = line.find(b':')
+        if x == -1:
+            continue
+        key = line[:x].strip().lower()
+        val = line[x+1:].strip()
+        
+        if key == b'set-cookie':
+            if parse_cookies == True:
+                x = val.find(b'=')
+                if x != -1:
+                    cookies[val[:x]] = val[x+1:] # includes any quotes and parameters
+        elif extra_headers == True or key in _IMPORTANT_HEADERS \
+                or (isinstance(extra_headers, (frozenset, set, list, tuple)) and key in extra_headers):
+            if key in headers:
+                headers[key] += b', ' + val
+            else:
+                headers[key] = val
+            last_header = key
+            continue
         
         last_header = None
+
+def parse_headers(sock):
+    return _parse_headers(sock, True, None)
 
 class HTTPResponse:
     def __enter__(self):
@@ -132,12 +135,14 @@ class HTTPResponse:
         self.debuglevel = debuglevel
         self._method = method
         self.url = url
+        if parse_cookies is None:
+            parse_cookies = False
         
         self.version, self.status, self.reason = self._read_status()
         if self.debuglevel > 0:
             print('status:', repr(self.version), repr(self.status), repr(self.reason))
         
-        self.headers, self.cookies = parse_headers(self._sock, extra_headers=extra_headers, parse_cookies=parse_cookies or False)
+        self.headers, self.cookies = _parse_headers(self._sock, extra_headers, parse_cookies)
         if self.debuglevel > 0:
             for key, val in self.headers.items():
                 print('header:', repr(key), '=', repr(val))
@@ -455,12 +460,12 @@ class HTTPConnection:
         return False
     
     def __init__(self, host, port=None, timeout=None, blocksize=1024):
-        if _have_locsplit and isinstance(port, str) and port is None:
+        if _have_locsplit and port is None and isinstance(host, str):
             _, _, self.host, self.port = _locsplit(host)
-            if self.host is None:
-                self.host = ''
         else:
             self.host, self.port = host, port
+        if not self.host:
+            raise ValueError('invalid host')
         if self.port is None:
             self.port = self.default_port
         self.timeout = timeout
@@ -504,6 +509,8 @@ class HTTPConnection:
         
         if headers is not None:
             for name in headers: # header names must be strings
+                if isinstance(name, (bytes, bytearray)):
+                    name = name.decode(_DECODE_HEAD)
                 name = name.lower()
                 if name == 'accept-encoding':
                     have_accept_encoding = True
