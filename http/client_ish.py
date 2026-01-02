@@ -1,4 +1,4 @@
-# http/client.py
+# http/client_ish.py
 
 import micropython, socket
 
