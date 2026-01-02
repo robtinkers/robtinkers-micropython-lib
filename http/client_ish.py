@@ -666,7 +666,7 @@ class HTTPConnection:
             values = encode_and_validate(values[0], _ENCODE_HEAD)
         elif len(values):
             # no idea why CPython joins with "\r\n\t" rather than ", "
-            values = b"\r\n\t".join([encode_and_validate(v, _ENCODE_HEAD) for v in values])
+            values = b", ".join([encode_and_validate(v, _ENCODE_HEAD) for v in values])
         else:
             return
         if isinstance(header, str):
