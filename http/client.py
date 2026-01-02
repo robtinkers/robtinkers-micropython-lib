@@ -44,7 +44,7 @@ def _has_C0_control(buf:ptr8, buflen:int) -> int:
         i += 1
     return 0
 
-def _encode_and_validate(b, *args):
+def encode_and_validate(b, *args):
     if isinstance(b, bytes):
         pass
     elif isinstance(b, str):
@@ -83,7 +83,7 @@ def create_connection(address, timeout=None):
                 sock.close()
     raise OSError('create_connection() failed')
 
-def _parse_headers(sock, extra_headers, parse_cookies):  # returns dict/s {bytes:bytes, ...}
+def parse_headers(sock, *, extra_headers=True, parse_cookies=None):  # returns dict/s {bytes:bytes, ...}
     # parse_cookies is tri-state:
     # parse_cookies == True? parse set-cookie headers and return as a dict
     # parse_cookies == False? don't parse set-cookie headers but return an empty dict
@@ -128,9 +128,6 @@ def _parse_headers(sock, extra_headers, parse_cookies):  # returns dict/s {bytes
             continue
         
         last_header = None
-
-def parse_headers(sock):
-    return _parse_headers(sock, True, None)
 
 class HTTPResponse:
     def __enter__(self):
@@ -655,7 +652,7 @@ class HTTPConnection:
         if cookies is not None:
             values = []
             for key, val in cookies.items():
-                values.append(b'%s=%s' % (key.encode(_ENCODE_HEAD), _encode_and_validate(val, _ENCODE_HEAD)))
+                values.append(b'%s=%s' % (key.encode(_ENCODE_HEAD), encode_and_validate(val, _ENCODE_HEAD)))
             if len(values) == 1:
                 self.putheader(b'Cookie', values[0])
             elif len(values):
@@ -666,10 +663,10 @@ class HTTPConnection:
             raise CannotSendHeader()
         
         if len(values) == 1:
-            values = _encode_and_validate(values[0], _ENCODE_HEAD)
+            values = encode_and_validate(values[0], _ENCODE_HEAD)
         elif len(values):
             # no idea why CPython joins with '\r\n\t' rather than ', '
-            values = b'\r\n\t'.join([_encode_and_validate(v, _ENCODE_HEAD) for v in values])
+            values = b'\r\n\t'.join([encode_and_validate(v, _ENCODE_HEAD) for v in values])
         else:
             return
         if isinstance(header, str):
