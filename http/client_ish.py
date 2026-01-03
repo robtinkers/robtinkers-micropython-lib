@@ -659,7 +659,7 @@ class HTTPConnection:
         if cookies is not None:
             values = []
             for key, val in cookies.items():
-                values.append(b"%s=%s" % (key.encode(_ENCODE_HEAD), encode_and_validate(val, _ENCODE_HEAD)))
+                values.append(b"%s=%s" % (encode_and_validate(key, _ENCODE_HEAD), encode_and_validate(val, _ENCODE_HEAD)))
             if len(values) == 1:
                 self.putheader(b"Cookie", values[0])
             elif len(values):
