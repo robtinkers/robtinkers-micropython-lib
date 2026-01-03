@@ -128,7 +128,7 @@ def parse_headers(sock, *, extra_headers=True, parse_cookies=None):  # returns d
             if parse_cookies == True:
                 x = val.find(b'=')
                 if x != -1:
-                    cookies[val[:x]] = val[x+1:]  # includes any quotes and parameters
+                    cookies[val[:x].rstrip()] = val[x+1:]  # includes any quotes and parameters
         elif extra_headers == True or key in _IMPORTANT_HEADERS \
                 or (isinstance(extra_headers, (frozenset, set, list, tuple)) and key in extra_headers):
             if key in headers:
