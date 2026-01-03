@@ -295,8 +295,17 @@ class HTTPResponse:
     
     def _read_chunked(self, arg):
         arg_is_memoryview = isinstance(arg, memoryview)
-        if not arg_is_memoryview:
-            chunks = []
+        res_is_memoryview = False
+        if arg_is_memoryview:
+            pass
+        elif arg is None:
+            res = None
+        elif arg <= 0:
+            return b""
+        else:
+            buf = bytearray(arg)
+            res = memoryview(buf)
+            res_is_memoryview = True
         total = 0
         
         while not self.isclosed():
@@ -341,27 +350,31 @@ class HTTPResponse:
                     self.close()
                     break
             
-            nread = 0
-            if arg_is_memoryview:  # readinto()
+            if arg_is_memoryview:
                 to_read = min(self.chunk_left, len(arg) - total)
-                if to_read > 0:
-                    nread = self._sock.readinto(arg[total:total+to_read])
-                else:
-                    break
-            else:  # read()
-                if arg is None:
-                    to_read = self.chunk_left
-                elif arg <= 0:
-                    return b""
-                else:
-                    to_read = min(self.chunk_left, arg - total)
-                if to_read > 0:
-                    data = self._sock.read(to_read)
-                    if data:
-                        chunks.append(data)
-                        nread = len(data)
-                else:
-                    break
+            elif res_is_memoryview:
+                to_read = min(self.chunk_left, len(res) - total)
+            else:
+                to_read = self.chunk_left
+            
+            if to_read <= 0:
+                break            
+            
+            nread = 0
+            if arg_is_memoryview:
+                nread = self._sock.readinto(arg[total:total+to_read])
+            elif res_is_memoryview:
+                nread = self._sock.readinto(res[total:total+to_read])
+            else:
+                chunk = self._sock.read(to_read)
+                if chunk:
+                    if res is None:
+                        res = chunk
+                    else:
+                        if isinstance(res, bytes):
+                            res = [res]
+                        res.append(chunk)
+                    nread = len(chunk)
             
             if nread <= 0:
                 # EOF
@@ -371,12 +384,7 @@ class HTTPResponse:
             total += nread
             self.chunk_left -= nread
             
-            if self.chunk_left < 0:
-                # Malformed data: over-read
-                self._close(True)
-                break
-            
-            elif self.chunk_left == 0:
+            if self.chunk_left == 0:
                 # We finished the chunk: validate trailing CRLF immediately.
                 crlf = self._sock.read(2)
                 if crlf != b"\r\n":
@@ -387,70 +395,72 @@ class HTTPResponse:
         
         if arg_is_memoryview:
             return total
-        if len(chunks) > 1:
-            return b"".join(chunks)
-        if len(chunks) == 1:
-            return chunks[0]
-        return b""  # EOF
+        elif res_is_memoryview:
+            return bytes(res[:total])
+        elif isinstance(res, bytes):
+            return res
+        elif res is not None:
+            return b"".join(res)
+        return b""
     
     def _read_raw(self, arg):
         arg_is_memoryview = isinstance(arg, memoryview)
         
         if self.isclosed():
-            # already EOF
+            # End of Content/File
             if arg_is_memoryview:
-                res = 0
+                return 0
             else:
-                res = b""
-        elif self.length is None:
-            if arg_is_memoryview:  # readinto()
-                res = self._sock.readinto(arg)
-                if res <= 0:
-                    # EOF
-                    self.close()
-            elif arg == 0:
                 return b""
-            else:  # read()
-                res = self._sock.read() if arg is None else self._sock.read(arg)
-                if not res:
-                    # EOF
-                    self.close()
-        elif self.length <= 0:
+        elif self.length is None:
+            # no Content-Length header
             if arg_is_memoryview:
-                res = 0
+                to_read = len(arg)
             else:
-                res = b""
+                to_read = arg
+        elif self.length <= 0:
+            # End of Content
             self.close()
-        else:
-            nread = 0
-            if arg_is_memoryview:  # readinto()
-                to_read = min(self.length, len(arg))
-                if to_read > 0:
-                    nread = res = self._sock.readinto(arg[:to_read])
-                else:
-                    res = 0
-            else:  # read()
-                if arg is None:
-                    to_read = self.length
-                elif arg <= 0:
-                    return b""
-                else:
-                    to_read = min(self.length, arg)
-                if to_read > 0:
-                    res = self._sock.read(to_read)
-                    if res:
-                        nread = len(res)
-                else:
-                    res = b""
-            
-            if nread <= 0:
-                self.close()
+            if arg_is_memoryview:
+                return 0
             else:
-                self.length -= nread
-                if self.length <= 0:
-                    self.close()
+                return b""
+        else:
+            if arg_is_memoryview:
+                to_read = min(self.length, len(arg))
+            elif arg is None:
+                to_read = self.length
+            else:
+                to_read = min(self.length, arg)
         
-        return res
+        if to_read <= 0:
+            if arg_is_memoryview:
+                return 0
+            return b""
+        
+        # Read the data (single read operation)
+        if arg_is_memoryview:
+            nread = self._sock.readinto(arg[:to_read])
+        elif arg is None:
+            res = self._sock.read()
+            nread = len(res)
+        else:
+            res = self._sock.read(to_read)
+            nread = len(res)
+        
+        if nread <= 0:
+            # EOF
+            self.close()
+        elif self.length is not None:
+            self.length -= nread
+            if self.length <= 0:
+                self.close()
+        
+        # Return result in appropriate format
+        if arg_is_memoryview:
+            return nread
+        else:
+            return res
     
     def getheader(self, name, default=None):
         if isinstance(name, str):
