@@ -453,6 +453,7 @@ class HTTPResponse:
         elif self.length is not None:
             self.length -= nread
             if self.length <= 0:
+                # End of Content
                 self.close()
         
         if arg_is_memoryview:
