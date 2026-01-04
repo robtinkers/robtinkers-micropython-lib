@@ -115,20 +115,27 @@ def parse_headers(sock, *, extra_headers=True, parse_cookies=None):  # returns d
         
         if line.startswith((b' ', b'\t')):
             if last_header is not None:
-                headers[last_header] += b" " + line.strip()
+                headers[last_header] += b" " + line.strip()  # line must start with whitespace
             continue
         
         x = line.find(b':')
         if x == -1:
             continue
-        key = line[:x].strip().lower()
-        val = line[x+1:].strip()
+        key = line[:x].lower()
+        if key and (key[0] <= 32 or key[-1] <= 32):
+            key = key.strip()
+        val = line[x+1:]
+        if val and (val[0] <= 32 or val[-1] <= 32):
+            val = val.strip()
         
         if key == b"set-cookie":
             if parse_cookies == True:
                 x = val.find(b'=')
                 if x != -1:
-                    cookies[val[:x].rstrip()] = val[x+1:]  # includes any quotes and parameters
+                    key, val = val[:x], val[x+1:]
+                    if key and key[-1] <= 32:
+                        key = key.rstrip()
+                    cookies[key] = val  # includes any quotes and parameters
         elif extra_headers == True or key in _IMPORTANT_HEADERS \
                 or (isinstance(extra_headers, (frozenset, set, list, tuple)) and key in extra_headers):
             if key in headers:
@@ -213,14 +220,13 @@ class HTTPResponse:
             line = self._sock.readline()
             if self.debuglevel > 0:
                 print("status:", repr(line))
-            if not line:
+            if not line or not line.endswith(b"\r\n"):
                 raise RemoteDisconnected()
-            
             if not line.startswith(b"HTTP/"):
                 raise BadStatusLine()
             
             try:
-                line = line.decode(_DECODE_HEAD).strip()
+                line = line.decode(_DECODE_HEAD).strip()  # line always ends with CRLF
                 line = line.split(None, 2)
                 if len(line) == 3:
                     version, status, reason = line
@@ -324,7 +330,7 @@ class HTTPResponse:
                     line = line[:x]
                 
                 try:
-                    self.chunk_left = int(line.strip(), 16)
+                    self.chunk_left = int(line.strip(), 16)  # line always ends with CRLF
                 except ValueError:
                     # Malformed data: invalid chunk size
                     self._close(True)
