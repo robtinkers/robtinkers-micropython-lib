@@ -15,9 +15,10 @@ _USES_RELATIVE = frozenset([
     "file", "ftp", "http", "https", "rtsp", "rtsps", "sftp", "ws", "wss",
 ])
 
-_USES_NETLOC = frozenset([
-    "file", "ftp", "http", "https", "rtsp", "rtsps", "sftp", "ws", "wss",
-])
+#_USES_NETLOC = frozenset([
+#    "file", "ftp", "http", "https", "rtsp", "rtsps", "sftp", "ws", "wss",
+#])
+_USES_NETLOC = _USES_RELATIVE
 
 _HEX_DIGITS = b"0123456789ABCDEF"
 
@@ -95,7 +96,10 @@ def _quote_helper(src: ptr8, srclen: int, masks: ptr32, res: ptr8) -> int:
 def _quote(s, safe, flags):
     if isinstance(s, (memoryview, bytes, bytearray)):
         src = s
+#    elif isinstance(s, str):
+#        src = s.decode("utf-8")
     else:
+        # if this fails for strings, enable the 'elif' code above
         src = memoryview(s)
     
     srclen = len(src)
@@ -104,20 +108,20 @@ def _quote(s, safe, flags):
     
     # Fast path for standard methods with default arguments
     if flags == 0 and safe == "/": # quote("foo")
-        masks = addressof(_MASKS_QUOTE)
+        masks = _MASKS_QUOTE
     elif flags == 1 and safe == "": # quote_plus("bar")
-        masks = addressof(_MASKS_QUOTE_PLUS)
+        masks = _MASKS_QUOTE_PLUS
     else:
         # Slow path: build custom masks
-        masks_custom = array('I', [flags, _MASKS_BASE[1], _MASKS_BASE[2], _MASKS_BASE[3]])
+        masks = array('I', [flags, _MASKS_BASE[1], _MASKS_BASE[2], _MASKS_BASE[3]])
         for c in safe:
             if isinstance(c, str):
                 c = ord(c)
             if 32 <= c <= 127:
                 masks_custom[(c >> 5)] |= (1 << (c & 31))
-        masks = addressof(masks_custom)
+    masks_ptr = ptr32(addressof(masks))
     
-    reslen = _quote_helper(src, srclen, masks, 0)
+    reslen = _quote_helper(src, srclen, masks_ptr, ptr8(0))
     if reslen <= 0:
         if isinstance(s, str):
             return s
@@ -127,7 +131,7 @@ def _quote(s, safe, flags):
             return bytes(s).decode("ascii")
     
     res = bytearray(reslen)
-    _quote_helper(src, srclen, masks, res)
+    _quote_helper(src, srclen, masks_ptr, ptr8(addressof(res)))
     return res.decode("ascii")
 
 def quote(string, safe="/", encoding=None, errors=None): # encoding and errors are unused
@@ -141,7 +145,7 @@ def quote_from_bytes(string, safe="/"):
 
 
 
-#_HEX_TO_INT = const(b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\xff\xff\xff\xff\xff\xff\xff\x0a\x0b\x0c\x0d\x0e\x0f\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x0a\x0b\x0c\x0d\x0e\x0f\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")
+_HEX_TO_INT = const(b"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\xff\xff\xff\xff\xff\xff\xff\x0a\x0b\x0c\x0d\x0e\x0f\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x0a\x0b\x0c\x0d\x0e\x0f\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff")
 
 @micropython.viper
 def _unquote_helper(src: ptr8, srclen: int, flags: int, res: ptr8) -> int:
@@ -150,7 +154,7 @@ def _unquote_helper(src: ptr8, srclen: int, flags: int, res: ptr8) -> int:
     reslen = 0
     n1 = n2 = b = 0
     
-#    hex_to_int = ptr8(addressof(_HEX_TO_INT))
+    hex_to_int = ptr8(addressof(_HEX_TO_INT))
     
     i = 0
     while (i < srclen):
@@ -159,19 +163,19 @@ def _unquote_helper(src: ptr8, srclen: int, flags: int, res: ptr8) -> int:
         
         if b == 37: # '%'
             if (i + 1 < srclen):
-                n1 = src[i+0]
-                if   48 <= n1 <= 57: n1 -= 48
-                elif 65 <= n1 <= 70: n1 -= 55
-                elif 97 <= n1 <=102: n1 -= 87
-                else: n1 = 255
-#                n1 = hex_to_int[n1]
+#                n1 = src[i+0]
+#                if   48 <= n1 <= 57: n1 -= 48
+#                elif 65 <= n1 <= 70: n1 -= 55
+#                elif 97 <= n1 <=102: n1 -= 87
+#                else: n1 = 255
+                n1 = hex_to_int[src[i+0]]
                 
-                n2 = src[i+1]
-                if   48 <= n2 <= 57: n2 -= 48
-                elif 65 <= n2 <= 70: n2 -= 55
-                elif 97 <= n2 <=102: n2 -= 87
-                else: n2 = 255
-#                n2 = hex_to_int[n2]
+#                n2 = src[i+1]
+#                if   48 <= n2 <= 57: n2 -= 48
+#                elif 65 <= n2 <= 70: n2 -= 55
+#                elif 97 <= n2 <=102: n2 -= 87
+#                else: n2 = 255
+                n2 = hex_to_int[src[i+1]]
             else:
                 n1 = 255
                 n2 = 255
@@ -192,11 +196,14 @@ def _unquote_helper(src: ptr8, srclen: int, flags: int, res: ptr8) -> int:
     return reslen if modified else 0
 
 def _unquote(s, start, end, flags) -> bytes:
+    # if s is a string, then start and end should be 0 and None
+    # otherwise you're going to have a very bad time
     if isinstance(s, (memoryview, bytes, bytearray)):
         src = s
+#    elif isinstance(s, str):
+#        src = s.decode("utf-8")
     else:
-        # if s is a string, then start and end should be 0 and None
-        # otherwise you're going to have a very bad time
+        # if this fails for strings, enable the 'elif' code above
         src = memoryview(s)
     
     srclen = len(src)
@@ -212,7 +219,7 @@ def _unquote(s, start, end, flags) -> bytes:
         return b""
     
     adr = addressof(src)
-    reslen = _unquote_helper(adr + start, end - start, flags, 0)
+    reslen = _unquote_helper(adr + start, end - start, flags, ptr8(0))
     if reslen <= 0:
         if isinstance(s, str):
             res = s.encode("utf-8")
@@ -229,7 +236,7 @@ def _unquote(s, start, end, flags) -> bytes:
             return res[start:end]
     
     res = bytearray(reslen)
-    _unquote_helper(adr + start, end - start, flags, res)
+    _unquote_helper(adr + start, end - start, flags, ptr8(addressof(res)))
     return bytes(res)
 
 def unquote(s, encoding="utf-8", errors="replace"): # errors is unused
