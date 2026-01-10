@@ -30,6 +30,15 @@ _ENCODE_HEAD = const("iso-8859-1")
 _DECODE_BODY = const("utf-8")
 _ENCODE_BODY = const("utf-8")
 
+class HTTPException(Exception): pass
+class NotConnected(HTTPException): pass
+class ImproperConnectionState(HTTPException): pass
+class CannotSendRequest(ImproperConnectionState): pass
+class CannotSendHeader(ImproperConnectionState): pass
+class ResponseNotReady(ImproperConnectionState): pass
+class BadStatusLine(HTTPException): pass
+class RemoteDisconnected(BadStatusLine): pass
+
 @micropython.viper
 def _has_C0_control(buf:ptr8, buflen:int) -> int:
     i = 0
@@ -800,13 +809,4 @@ else:
                     self.sock = ssl.wrap_socket(self.sock)
             else:
                 self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
-
-class HTTPException(Exception): pass
-class NotConnected(HTTPException): pass
-class ImproperConnectionState(HTTPException): pass
-class CannotSendRequest(ImproperConnectionState): pass
-class CannotSendHeader(ImproperConnectionState): pass
-class ResponseNotReady(ImproperConnectionState): pass
-class BadStatusLine(HTTPException): pass
-class RemoteDisconnected(BadStatusLine): pass
 
