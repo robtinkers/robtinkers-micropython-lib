@@ -389,7 +389,7 @@ class I2CDeviceMixInStructs:
         if self.SCRATCH_SIZE > size:
             buf = self._scratch_mv[:size]
         elif self.SCRATCH_SIZE == size > 0:
-            buf = self._scratch_mv 
+            buf = self._scratch_ba
         else:
             if self.SCRATCH_SIZE > 0:
                 print("Warning: readstructfrom created new bytearray() size", size, "bytes")
@@ -420,7 +420,7 @@ class I2CDeviceMixInStructs:
         if self.SCRATCH_SIZE > size:
             buf = self._scratch_mv[:size]
         elif self.SCRATCH_SIZE == size > 0:
-            buf = self._scratch_mv 
+            buf = self._scratch_ba
         else:
             if self.SCRATCH_SIZE > 0:
                 print("Warning: writestructto created new bytearray() size", size, "bytes")
