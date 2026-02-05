@@ -168,6 +168,9 @@ class I2CBus:
     def modify_mem(self, addr, memaddr, mode, setbits, clrbits=None, *, addrsize=8):
         self._require_lock()
         
+        if mode not in (MODE_8, MODE_16BE, MODE_16LE):
+            raise ValueError("invalid mode")
+        
         buf = self._byte if (mode == MODE_8) else self._word
         
         if clrbits is not None:
