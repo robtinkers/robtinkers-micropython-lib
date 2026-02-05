@@ -169,7 +169,7 @@ class I2CBus:
         self._require_lock()
         
         if mode not in (MODE_8, MODE_16BE, MODE_16LE):
-            raise ValueError("invalid mode")
+            raise ValueError("mode invalid")
         
         buf = self._byte if (mode == MODE_8) else self._word
         
