@@ -2,7 +2,7 @@
 
 from micropython import const
 import machine
-import time  # only needed for _SimpleLock
+import time
 import struct  # only needed for I2CDeviceMixInStructs and I2CStruct
 
 MODE_8 = "8"
