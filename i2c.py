@@ -9,15 +9,14 @@ MODE_8 = "8"
 MODE_16BE = "16BE"
 MODE_16LE = "16LE"
 
+
 _ACQUIRE_BUS = (False,)
 _ACQUIRE_DEV = (True,)
-
 
 try:
     import _thread
 except ImportError:
     _thread = None
-
     class _SimpleLock:
         # A very simple lock implementation that should only be used when _thread.allocate_lock is not available
         # It is not thread-safe, but is otherwise sufficient for the purposes of this library
