@@ -140,12 +140,12 @@ class Response:
         return (self.status_code < 400)
     
     def close(self):
-        if self._response:
-            self._response.close()
-            self._response = None
         if self._connection:
             self._connection.close()
             self._connection = None
+        if self._response:
+            self._response.close()
+            self._response = None
     
     @property
     def headers(self):
@@ -185,12 +185,11 @@ class Response:
         return json_lib.loads(self.content)
     
     def json_partial(self, chunk_size, *args):
-        stop_markers = [arg.encode(self.encoding) if isinstance(arg, str) else arg for arg in args]
+        stop_markers = [a.encode(self.encoding) if isinstance(a, str) else a for a in args]
         suffix = stop_markers.pop() if stop_markers else None
         
         if self._content is None:
             content = self._response.read(chunk_size)
-            self.close()
         else:
             content = self._content
         
@@ -200,9 +199,13 @@ class Response:
             if pos != -1 and pos < first_marker_pos:
                 first_marker_pos = pos
         if suffix is None:
-            return json_lib.loads(content[:first_marker_pos])
+            content = content[:first_marker_pos]
         else:
-            return json_lib.loads(content[:first_marker_pos] + suffix)
+            content = content[:first_marker_pos] + suffix
+        
+        self.close()
+        self._content = None
+        return json_lib.loads(content)
     
     def raise_for_status(self):
         if 400 <= self.status_code < 500:
