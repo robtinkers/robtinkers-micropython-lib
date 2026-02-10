@@ -30,75 +30,6 @@ _ENCODE_HEAD = const("utf-8") # micropython doesn't support iso-8859-1
 _DECODE_BODY = const("utf-8")
 _ENCODE_BODY = const("utf-8")
 
-class CaseInsensitiveDict(MutableMapping):
-    """A case-insensitive ``dict``-like object.
-
-    Implements all methods and operations of
-    ``MutableMapping`` as well as dict's ``copy``. Also
-    provides ``lower_items``.
-
-    All keys are expected to be strings. The structure remembers the
-    case of the last key to be set, and ``iter(instance)``,
-    ``keys()``, ``items()``, ``iterkeys()``, and ``iteritems()``
-    will contain case-sensitive keys. However, querying and contains
-    testing is case insensitive::
-
-        cid = CaseInsensitiveDict()
-        cid['Accept'] = 'application/json'
-        cid['aCCEPT'] == 'application/json'  # True
-        list(cid) == ['Accept']  # True
-
-    For example, ``headers['content-encoding']`` will return the
-    value of a ``'Content-Encoding'`` response header, regardless
-    of how the header name was originally stored.
-
-    If the constructor, ``.update``, or equality comparison
-    operations are given keys that have equal ``.lower()``s, the
-    behavior is undefined.
-    """
-
-    def __init__(self, data=None, **kwargs):
-        self._store = OrderedDict()
-        if data is None:
-            data = {}
-        self.update(data, **kwargs)
-
-    def __setitem__(self, key, value):
-        # Use the lowercased key for lookups, but store the actual
-        # key alongside the value.
-        self._store[key.lower()] = (key, value)
-
-    def __getitem__(self, key):
-        return self._store[key.lower()][1]
-
-    def __delitem__(self, key):
-        del self._store[key.lower()]
-
-    def __iter__(self):
-        return (casedkey for casedkey, mappedvalue in self._store.values())
-
-    def __len__(self):
-        return len(self._store)
-
-    def lower_items(self):
-        """Like iteritems(), but with all lowercase keys."""
-        return ((lowerkey, keyval[1]) for (lowerkey, keyval) in self._store.items())
-
-    def __eq__(self, other):
-        if isinstance(other, Mapping):
-            other = CaseInsensitiveDict(other)
-        else:
-            return NotImplemented
-        # Compare insensitively
-        return dict(self.lower_items()) == dict(other.lower_items())
-
-    # Copy is required
-    def copy(self):
-        return CaseInsensitiveDict(self._store.values())
-
-    def __repr__(self):
-        return str(dict(self.items()))
-
 class HTTPMessage(dict): pass
 class HTTPCookies(dict): pass  # Extension
 class HTTPException(Exception): pass
@@ -385,7 +316,7 @@ class HTTPResponse:
         arg_is_memoryview = isinstance(arg, memoryview)
         res_is_memoryview = False
         if arg_is_memoryview:
-            pass
+            res = arg
         elif arg is None:
             res = None
         elif arg <= 0:
@@ -493,12 +424,16 @@ class HTTPResponse:
             # End of Content/File
             if arg_is_memoryview:
                 return 0
-            else:
-                return b""
+            return b""
+        
         elif self.length is None:
             # no Content-Length header
             if arg_is_memoryview:
                 to_read = len(arg)
+            elif arg is None:
+	            res = self._sock.read()
+	            self.close()
+	            return res
             else:
                 to_read = arg
         elif self.length <= 0:
@@ -506,8 +441,8 @@ class HTTPResponse:
             self.close()
             if arg_is_memoryview:
                 return 0
-            else:
-                return b""
+            return b""
+        
         else:
             if arg_is_memoryview:
                 to_read = min(self.length, len(arg))
@@ -523,9 +458,6 @@ class HTTPResponse:
         
         if arg_is_memoryview:
             nread = self._sock.readinto(arg[:to_read])
-        elif arg is None:
-            res = self._sock.read()
-            nread = len(res)
         else:
             res = self._sock.read(to_read)
             nread = len(res)
@@ -541,8 +473,7 @@ class HTTPResponse:
         
         if arg_is_memoryview:
             return nread
-        else:
-            return res
+        return res
     
     def getheader(self, name, default=None):
         if isinstance(name, str):
@@ -880,3 +811,4 @@ else:
                     self.sock = ssl.wrap_socket(self.sock)
             else:
                 self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+
