@@ -25,11 +25,82 @@ _IMPORTANT_HEADERS = frozenset({
     b"www-authenticate",
 })
 
-_DECODE_HEAD = const("iso-8859-1")
-_ENCODE_HEAD = const("iso-8859-1")
+_DECODE_HEAD = const("utf-8") # micropython doesn't support iso-8859-1
+_ENCODE_HEAD = const("utf-8") # micropython doesn't support iso-8859-1
 _DECODE_BODY = const("utf-8")
 _ENCODE_BODY = const("utf-8")
 
+class CaseInsensitiveDict(MutableMapping):
+    """A case-insensitive ``dict``-like object.
+
+    Implements all methods and operations of
+    ``MutableMapping`` as well as dict's ``copy``. Also
+    provides ``lower_items``.
+
+    All keys are expected to be strings. The structure remembers the
+    case of the last key to be set, and ``iter(instance)``,
+    ``keys()``, ``items()``, ``iterkeys()``, and ``iteritems()``
+    will contain case-sensitive keys. However, querying and contains
+    testing is case insensitive::
+
+        cid = CaseInsensitiveDict()
+        cid['Accept'] = 'application/json'
+        cid['aCCEPT'] == 'application/json'  # True
+        list(cid) == ['Accept']  # True
+
+    For example, ``headers['content-encoding']`` will return the
+    value of a ``'Content-Encoding'`` response header, regardless
+    of how the header name was originally stored.
+
+    If the constructor, ``.update``, or equality comparison
+    operations are given keys that have equal ``.lower()``s, the
+    behavior is undefined.
+    """
+
+    def __init__(self, data=None, **kwargs):
+        self._store = OrderedDict()
+        if data is None:
+            data = {}
+        self.update(data, **kwargs)
+
+    def __setitem__(self, key, value):
+        # Use the lowercased key for lookups, but store the actual
+        # key alongside the value.
+        self._store[key.lower()] = (key, value)
+
+    def __getitem__(self, key):
+        return self._store[key.lower()][1]
+
+    def __delitem__(self, key):
+        del self._store[key.lower()]
+
+    def __iter__(self):
+        return (casedkey for casedkey, mappedvalue in self._store.values())
+
+    def __len__(self):
+        return len(self._store)
+
+    def lower_items(self):
+        """Like iteritems(), but with all lowercase keys."""
+        return ((lowerkey, keyval[1]) for (lowerkey, keyval) in self._store.items())
+
+    def __eq__(self, other):
+        if isinstance(other, Mapping):
+            other = CaseInsensitiveDict(other)
+        else:
+            return NotImplemented
+        # Compare insensitively
+        return dict(self.lower_items()) == dict(other.lower_items())
+
+    # Copy is required
+    def copy(self):
+        return CaseInsensitiveDict(self._store.values())
+
+    def __repr__(self):
+        return str(dict(self.items()))
+
+class HTTPMessage(dict): pass
+class HTTPCookies(dict): pass  # Extension
 class HTTPException(Exception): pass
 class NotConnected(HTTPException): pass
 class ImproperConnectionState(HTTPException): pass
@@ -40,13 +111,13 @@ class BadStatusLine(HTTPException): pass
 class RemoteDisconnected(BadStatusLine): pass
 
 @micropython.viper
-def _has_C0_control(buf:ptr8, buflen:int) -> int:
+def _is_visible_ascii(buf:ptr8, buflen:int) -> int:
     i = 0
     while i < buflen:
-        if buf[i] < 32:
-            return 1
+        if buf[i] < 32 or buf[i] >= 127:
+            return 0
         i += 1
-    return 0
+    return 1
 
 def encode_and_validate(b, *args):
     if isinstance(b, str):
@@ -55,9 +126,11 @@ def encode_and_validate(b, *args):
         pass
     elif isinstance(b, (bytearray, memoryview)):
         b = bytes(b)
+    elif isinstance(b, int):
+        return str(b).encode(*args)
     else:
-        raise TypeError("must be bytes-like")
-    if _has_C0_control(b, len(b)) == 1:
+        raise TypeError("must be bytes-like or int")
+    if _is_visible_ascii(b, len(b)) == 0:
         raise ValueError("can't contain control characters")
     return b
 
@@ -109,9 +182,9 @@ def parse_headers(sock, *, extra_headers=True, parse_cookies=None):  # returns d
     # parse_cookies == False? don't parse set-cookie headers but return an empty dict
     # parse_cookies == None? don't parse set-cookie headers and don't even return a dict
     
-    headers = {}
+    headers = HTTPMessage()
     if parse_cookies is not None:
-        cookies = {}
+        cookies = HTTPCookies()
     last_header = None
     
     while True:
@@ -323,11 +396,13 @@ class HTTPResponse:
             res_is_memoryview = True
         total = 0
         
+        sock = self._sock   # fewer attribute lookups below
+        
         while not self.isclosed():
             
             if self.chunk_left is None:
                 # Need to read a new chunk header
-                line = self._sock.readline()
+                line = sock.readline()
                 if not line.endswith(b"\r\n"):
                     # Malformed data: invalid chunk header
                     self._close(True)
@@ -353,7 +428,7 @@ class HTTPResponse:
                 if self.chunk_left == 0:
                     # Final chunk: consume trailers until blank line, then done
                     while True:
-                        line = self._sock.readline()
+                        line = sock.readline()
                         if line == b"\r\n":
                             # End of Content
                             self.chunk_left = None
@@ -365,31 +440,24 @@ class HTTPResponse:
                     self.close()
                     break
             
-            if arg_is_memoryview:
-                to_read = min(self.chunk_left, len(arg) - total)
-            elif res_is_memoryview:
+            nread = 0
+            
+            if arg_is_memoryview or res_is_memoryview:
                 to_read = min(self.chunk_left, len(res) - total)
+                if to_read > 0:
+                    nread = sock.readinto(res[total:total+to_read])
             else:
                 to_read = self.chunk_left
-            
-            if to_read <= 0:
-                break            
-            
-            nread = 0
-            if arg_is_memoryview:
-                nread = self._sock.readinto(arg[total:total+to_read])
-            elif res_is_memoryview:
-                nread = self._sock.readinto(res[total:total+to_read])
-            else:
-                chunk = self._sock.read(to_read)
-                if chunk:
-                    if res is None:
-                        res = chunk
-                    else:
-                        if isinstance(res, bytes):
-                            res = [res]
-                        res.append(chunk)
-                    nread = len(chunk)
+                if to_read > 0:
+                    chunk = sock.read(to_read)
+                    if chunk:
+                        if res is None:
+                            res = chunk
+                        else:
+                            if isinstance(res, bytes):
+                                res = [res]
+                            res.append(chunk)
+                        nread = len(chunk)
             
             if nread <= 0:
                 # EOF
@@ -401,7 +469,7 @@ class HTTPResponse:
             
             if self.chunk_left == 0:
                 # We finished the chunk: validate trailing CRLF immediately.
-                crlf = self._sock.read(2)
+                crlf = sock.read(2)
                 if crlf != b"\r\n":
                     # Malformed data: missing CRLF after this chunk
                     self._close(True)
@@ -635,7 +703,7 @@ class HTTPConnection:
                         encode_chunked = True
                         self.putheader(b"Transfer-Encoding", b"chunked")
                 else:
-                    self.putheader(b"Content-Length", str(content_length))
+                    self.putheader(b"Content-Length", content_length)
         else:
             encode_chunked = False
         
@@ -695,15 +763,18 @@ class HTTPConnection:
         if self.__response is not None:
             raise CannotSendHeader()
         
-        if len(values) == 1:
-            values = encode_and_validate(values[0], _ENCODE_HEAD)
-        elif len(values):
-            # no idea why CPython joins with "\r\n\t" rather than ", "
-            values = b", ".join([encode_and_validate(v, _ENCODE_HEAD) for v in values])
-        else:
+        if len(values) == 0:
             return
+        
         if isinstance(header, str):
             header = header.encode(_ENCODE_HEAD)
+        
+        if len(values) == 1:
+            values = encode_and_validate(values[0], _ENCODE_HEAD)
+        else:
+            # no idea why CPython joins with "\r\n\t" rather than ", "
+            values = b", ".join([encode_and_validate(v, _ENCODE_HEAD) for v in values])
+        
         self._sendall(b"%s: %s\r\n" % (header, values))
     
     def endheaders(self, message_body=None, *, encode_chunked=False):
@@ -809,4 +880,3 @@ else:
                     self.sock = ssl.wrap_socket(self.sock)
             else:
                 self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
-
