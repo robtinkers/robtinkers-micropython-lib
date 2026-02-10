@@ -439,7 +439,7 @@ def urlsplit_as_tuple(url: str, scheme, allow_fragments: bool) -> tuple:
 class SplitResult(tuple):
     
     def __init__(self, scheme, netloc, path, query, fragment):
-        super().__init__((scheme or "", netloc or "", path or "", query or "", fragment or ""))
+        super().__init__((scheme or "", netloc or "", path, query or "", fragment or ""))
         self.username, self.password, self.hostname, self._port = locsplit_as_tuple(self[1])
 #        self._args = (scheme, netloc, path, query, fragment)
     
@@ -470,12 +470,11 @@ class SplitResult(tuple):
 #        return urlunsplit(self._args)
         return urlunsplit(self)
 
-def urlsplit(url: str, scheme="", allow_fragments=True) -> SplitResult:
+def urlsplit(url: str, scheme=None, allow_fragments=True) -> SplitResult:
     return SplitResult(*urlsplit_as_tuple(url, scheme, allow_fragments))
 
 
 
-# derived from CPython (all bugs are mine)
 def _urlunsplit(scheme, netloc, path, query, fragment) -> str:
     parts = []
     
@@ -486,12 +485,12 @@ def _urlunsplit(scheme, netloc, path, query, fragment) -> str:
     if netloc is not None:
         parts.append("//")
         parts.append(netloc)
-        if not path.startswith("/"):
+        if path and not path.startswith("/"):
             parts.append("/")
-        parts.append(path)
     else:
-        if path.startswith("//"):
+        if path and path.startswith("//"):
             parts.append("//")
+    if path:
         parts.append(path)
     
     if query is not None:
@@ -531,7 +530,7 @@ def urljoin(base: str, url: str, allow_fragments: bool=True) -> str:
         return url
     if not scheme or scheme in _USES_NETLOC:
         if netloc:
-            return urlunsplit((scheme, netloc, path, query, fragment))
+            return _urlunsplit(scheme, netloc, path, query, fragment)
         netloc = bnetloc
     
     if not path:
