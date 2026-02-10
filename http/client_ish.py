@@ -327,7 +327,7 @@ class HTTPResponse:
             res_is_memoryview = True
         total = 0
         
-        sock = self._sock   # fewer attribute lookups below
+        sock = self._sock  # fewer attribute lookups below
         
         while not self.isclosed():
             
@@ -420,6 +420,12 @@ class HTTPResponse:
     def _read_raw(self, arg):
         arg_is_memoryview = isinstance(arg, memoryview)
         
+        if arg_is_memoryview:
+            if len(arg) == 0:
+                return 0
+        elif arg is not None and arg <= 0:
+            return b""
+        
         if self.isclosed():
             # End of Content/File
             if arg_is_memoryview:
@@ -436,6 +442,7 @@ class HTTPResponse:
 	            return res
             else:
                 to_read = arg
+        
         elif self.length <= 0:
             # End of Content
             self.close()
@@ -450,11 +457,6 @@ class HTTPResponse:
                 to_read = self.length
             else:
                 to_read = min(self.length, arg)
-        
-        if to_read <= 0:
-            if arg_is_memoryview:
-                return 0
-            return b""
         
         if arg_is_memoryview:
             nread = self._sock.readinto(arg[:to_read])
@@ -493,7 +495,8 @@ class HTTPResponse:
         return ((k.decode(_DECODE_HEAD), v.decode(_DECODE_HEAD))
                  for k, v in self.headers.items())
     
-    def getcookie(self, name, default=None):  # extension
+    # Extension
+    def getcookie(self, name, default=None):
         if isinstance(name, str):
             name = name.encode(_ENCODE_HEAD)
         if name in self.cookies:
@@ -510,33 +513,37 @@ class HTTPResponse:
         return ((k.decode(_DECODE_HEAD), v.split(b';')[0].decode(_DECODE_HEAD))
                  for k, v in self.cookies.items())
     
-#    def iter_content(self, chunk_size=1024):  # extension
-#        chunk_size = int(chunk_size)
-#        if chunk_size <= 0:
-#            raise ValueError("chunk_size must be > 0")
-#        while True:
-#            b = self.read(chunk_size)
-#            if not b:
-#                return
-#            yield b
+    # Extension
+    def iter_content(self, chunk_size=1024):
+        chunk_size = int(chunk_size)
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be > 0")
+        buf = memoryview(bytearray(chunk_size))
+        while True:
+            n = self.readinto(buf)
+            if not n:
+                return
+            yield bytes(buf[:n])
     
-#    def iter_content_into(self, buf):  # extension
-#        bmv = buf if isinstance(buf, memoryview) else memoryview(buf)
-#        while True:
-#            n = self.readinto(bmv)
-#            if not n:
-#                return
-#            yield n
+    # Extension
+    def iter_content_into(self, buf):
+        while True:
+            n = self.readinto(buf)
+            if not n:
+                return
+            yield n
 
 class HTTPConnection:
     default_port = HTTP_PORT
     auto_open = 1
     debuglevel = 0
     
-    def __enter__(self):  # extension
+    # Extension
+    def __enter__(self):
         return self
     
-    def __exit__(self, exc_type, exc_value, traceback):  # extension
+    # Extension
+    def __exit__(self, exc_type, exc_value, traceback):
         self.close()
         return False
     
@@ -676,7 +683,8 @@ class HTTPConnection:
         if not skip_accept_encoding:
             self.putheader(b"Accept-Encoding", b"identity")
     
-    def putheaders(self, headers, cookies=None):  # extension
+    # Extension
+    def putheaders(self, headers, cookies=None):
         if headers is not None:
             for key, val in headers.items():
                 self.putheader(key, val)
@@ -811,4 +819,3 @@ else:
                     self.sock = ssl.wrap_socket(self.sock)
             else:
                 self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
-
