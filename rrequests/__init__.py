@@ -140,12 +140,12 @@ class Response:
         return (self.status_code < 400)
     
     def close(self):
-        if self._connection:
-            self._connection.close()
-            self._connection = None
         if self._response:
             self._response.close()
             self._response = None
+        if self._connection:
+            self._connection.close()
+            self._connection = None
     
     @property
     def headers(self):
@@ -192,6 +192,8 @@ class Response:
             content = self._response.read(chunk_size)
         else:
             content = self._content
+        self._content = None
+        self.close()
         
         first_marker_pos = len(content)
         for marker in stop_markers:
@@ -203,8 +205,6 @@ class Response:
         else:
             content = content[:first_marker_pos] + suffix
         
-        self.close()
-        self._content = None
         return json_lib.loads(content)
     
     def raise_for_status(self):
@@ -228,7 +228,10 @@ class Response:
         finally:
             self.close()
 
+
+
 class Session:
+    
     def __init__(self):
         self.headers = {}
         self.cookies = {} 
@@ -237,23 +240,29 @@ class Session:
         self.verify = True 
         self.max_redirects = 30
     
-    def request(self, method, url, 
-                params=None, 
-                data=None, 
-                headers=None, 
-                cookies=None, 
-                files=None, 
-                auth=None,
-                timeout=None, 
-                allow_redirects=True, 
-                proxies=None, 
-                hooks=None, 
-                stream=False, 
-                verify=None, 
-                cert=None, 
-                json=None,
-                extra_headers=True,
-                parse_cookies=True
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        pass
+    
+    def _request(self, method, url, 
+                 params=None, 
+                 data=None, 
+                 headers=None, 
+                 cookies=None, 
+                 files=None, 
+                 auth=None,
+                 timeout=None, 
+                 allow_redirects=True, 
+                 proxies=None, 
+                 hooks=None, 
+                 stream=False, 
+                 verify=None, 
+                 cert=None, 
+                 json=None,
+                 extra_headers=True,
+                 parse_cookies=True
             ):
         
         req_headers = self.headers.copy()
@@ -292,7 +301,7 @@ class Session:
         
         history = []
         _redirects = 0
-
+        
         q = urlsplit(url)
         while True:
             p = q
@@ -359,6 +368,7 @@ class Session:
                     
                     continue
                 
+                resp.history = history
                 return resp
             
             except OSError as e:
@@ -367,6 +377,19 @@ class Session:
             finally:
                 if connection is not None:
                     connection.close()
+    
+    def request(self, method, url, **kwargs):
+        try:
+            return self._request(method, url, **kwargs)
+        except OSError:
+            pass
+        
+        try:
+            connect_to_wifi()
+        except OSError:
+            return None
+        
+        return self._request(method, url, **kwargs)
     
     def get(self, url, **kwargs):
         return self.request("GET", url, **kwargs)
@@ -389,12 +412,6 @@ class Session:
     
     def delete(self, url, **kwargs):
         return self.request("DELETE", url, **kwargs)
-    
-    def __enter__(self):
-        return self
-    
-    def __exit__(self, *args):
-        pass
 
 # --- Module Level API ---
 
