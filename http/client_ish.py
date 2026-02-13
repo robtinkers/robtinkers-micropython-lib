@@ -44,6 +44,13 @@ class HTTPMessage:
     def __repr__(self):
         return f"{self.__class__.__name__}(...)"
     
+    def __len__(self):
+        return len(self._data)
+    
+    def __iter__(self):
+        for key in self._data.keys():
+            yield key
+    
     def __contains__(self, key):
         if isinstance(key, str):
             key = key.encode(_ENCODE_HEAD)
