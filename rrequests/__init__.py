@@ -1,15 +1,8 @@
+# rrequests/__init__.py
+
 import json as json_lib
-
-# Robust imports to handle both package-based and root-based file placement
-try:
-    from urllib.parse import urlsplit, urljoin, urlencode
-except ImportError:
-    from parse import urlsplit, urljoin, urlencode
-
-try:
-    import http.client_ish as http_client
-except ImportError:
-    import client_ish as http_client
+from urllib.parse import urlsplit, urljoin, urlencode
+import http.client_ish as http_client
 
 # --- Exceptions ---
 
@@ -18,23 +11,6 @@ class HTTPError(RequestException): pass
 class ConnectionError(RequestException): pass
 class Timeout(RequestException): pass
 class TooManyRedirects(RequestException): pass
-
-# --- Status Codes ---
-
-class Codes:
-    def __init__(self):
-        self.ok = 200
-        self.created = 201
-        self.accepted = 202
-        self.no_content = 204
-        self.moved_permanently = 301
-        self.found = 302
-        self.bad_request = 400
-        self.unauthorized = 401
-        self.forbidden = 403
-        self.not_found = 404
-        self.internal_server_error = 500
-codes = Codes()
 
 # --- Helper Functions ---
 
@@ -184,7 +160,7 @@ class Response:
     def json(self):
         return json_lib.loads(self.content)
     
-    def json_partial(self, chunk_size, *args):
+    def partial_json(self, *args, chunk_size=1024):
         stop_markers = [a.encode(self.encoding) if isinstance(a, str) else a for a in args]
         suffix = stop_markers.pop() if stop_markers else None
         
@@ -232,12 +208,15 @@ class Response:
 
 class Session:
     
-    def __init__(self):
+    def __init__(self, connect_to_wifi=None, wifi_params=None):
+        self.connect_to_wifi = connect_to_wifi
+        self.wifi_params = wifi_params
+        
         self.headers = {}
-        self.cookies = {} 
+        self.cookies = {}
         self.auth = None
         self.params = {}
-        self.verify = True 
+        self.verify = True
         self.max_redirects = 30
     
     def __enter__(self):
@@ -329,26 +308,26 @@ class Session:
                 
                 raw_response = connection.getresponse(extra_headers=extra_headers, parse_cookies=parse_cookies)
                 
-                resp = Response(connection, raw_response, stream=stream)
-                resp.url = url
+                response = Response(connection, raw_response, stream=stream)
+                response.url = url
                 connection = None  # Response owns it now
                 
-                if resp.cookies:
-                    self.cookies.update(resp.cookies)
+                if response.cookies:
+                    self.cookies.update(response.cookies)
                 
-                if allow_redirects and resp.status_code in [301, 302, 303, 307, 308]:
+                if allow_redirects and response.status_code in [301, 302, 303, 307, 308]:
                     if _redirects >= self.max_redirects:
-                        raise TooManyRedirects("Exceeded {} redirects.".format(self.max_redirects))
+                        raise TooManyRedirects()
                     
-                    history.append(resp)
+                    history.append(response)
                     _redirects += 1
                     
-                    resp.close() 
+                    response.close() 
                     
-                    location = resp.headers.get("location")
+                    location = response.headers.get("location")
                     if not location:
-                        resp.history = history
-                        return resp
+                        response.history = history
+                        return response
                     
                     url = urljoin(url, location)
                     
@@ -368,8 +347,8 @@ class Session:
                     
                     continue
                 
-                resp.history = history
-                return resp
+                response.history = history
+                return response
             
             except OSError as e:
                 raise ConnectionError(e)
@@ -381,15 +360,28 @@ class Session:
     def request(self, method, url, **kwargs):
         try:
             return self._request(method, url, **kwargs)
-        except OSError:
-            pass
-        
-        try:
-            connect_to_wifi()
-        except OSError:
-            return None
-        
-        return self._request(method, url, **kwargs)
+        except ConnectionError as e:
+            # ConnectionError wraps the OSError from _request.
+            # Unwrap to inspect the errno.
+            inner = e.args[0] if e.args else None
+            if not isinstance(inner, OSError):
+                raise
+            err = inner.errno if hasattr(inner, 'errno') else inner.args[0] if inner.args else None
+            if err not in WIFI_ERRNOS:
+                raise
+            if not self.connect_to_wifi:
+                raise
+            
+            # Looks like a connectivity problem — try reconnecting once.
+            try:
+                if self.wifi_params is None:
+                    self.connect_to_wifi()
+                else:
+                    self.connect_to_wifi(*self.wifi_params)
+            except OSError as e:
+                raise ConnectionError(e)
+            
+            return self._request(method, url, **kwargs)
     
     def get(self, url, **kwargs):
         return self.request("GET", url, **kwargs)
